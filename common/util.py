@@ -7,6 +7,7 @@ import re
 import pandas as pd
 
 VINA = "D:\\Program Files (x86)\\The Scripps Research Institute\\Vina"
+OBABEL = "D:\\Program Files\\OpenBabel-3.1.1"
 
 
 def qikprop(mols: list) -> pd.DataFrame:
@@ -36,7 +37,7 @@ def qikprop(mols: list) -> pd.DataFrame:
     qp_solver.run()
 
     result = pd.read_csv(f"{id}-001.CSV")  # why -001? ask Inc. Schrodinger!
-    _delete_scratch(str(id))
+    # _delete_scratch(str(id))
     os.chdir("..")
 
     return result
