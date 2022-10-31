@@ -1,16 +1,9 @@
-from openbabel import openbabel
-obConversion = openbabel.OBConversion()
-obConversion.SetInAndOutFormats("smi", "mdl")
 
-mol = openbabel.OBMol()
-if obConversion.ReadFile(mol, "smiDemo.smi"):
-    print("hello")
+from core.predictor import Predictor
 
-print('Should not print 0 (atoms)')
-print(mol.NumAtoms())
+p = Predictor(['Cn1c(CN2CCN(CC2)c3ccc(Cl)cc3)nc4ccccc14', 'COc1cc(OC)c(cc1NC(=O)CSCC(=O)O)S(=O)(=O)N2C(C)CCc3ccccc23'],
+             "test/pdbdemo.pdb","test/configtest.txt")
+p.run()
 
-mol.AddHydrogens()
-print('Should not print 0 (atoms) after adding hydrogens')
-print(mol.NumAtoms())
 
 
