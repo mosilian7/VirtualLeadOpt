@@ -6,11 +6,9 @@ import threading
 
 import pandas as pd
 import schrodinger.pipeline.pipeio as pipeio
+import common.util as util
 from schrodinger import structure
 from schrodinger.pipeline.stages.qikprop import QikPropStage as qp
-
-VINA = "D:\\Program Files (x86)\\The Scripps Research Institute\\Vina"
-OBABEL = "D:\\Program Files\\OpenBabel-3.1.1"
 
 
 class Predictor:
@@ -108,6 +106,7 @@ class Predictor:
                 os.remove(f)
 
     def _run_args(self, args):
+        # deprecated. can be replaced by util.ren_args(args, log=self.log)
         cp = subprocess.run(args, shell=True, capture_output=True, encoding="utf-8", errors="ignore")
         self.log.write(f"-{args[0]} STDOUT:\n" + cp.stdout)
         self.log.write(f"-{args[0]} STDERR:\n" + cp.stderr)
@@ -124,11 +123,11 @@ class Predictor:
 
         for i in range(len(self.mols)):
             out_file = f"{self.id}_{i+1}_out.pdbqt"
-            self._run_args(["vina",
+            util.run_args(["vina",
                             "--receptor", f"../{self.protein}",
                             "--ligand", f"{self.id}_{i+1}.pdbqt",
                             "--out", out_file,
-                            "--config", f"../{self.dock_config}"])
+                            "--config", f"../{self.dock_config}"], log=self.log)
             # vina usage: see https://vina.scripps.edu/manual/#usage
             # i+1: ligands pdbqt files split by openbabel start at index 1
             # ../self.protein: ugliest code in this class. schrodinger api doesn't allow to change output filename
@@ -159,10 +158,10 @@ class Predictor:
         # convert .pdb to .pdbqt
         if re.search(".pdbqt", self.protein) is None:
             protein_file = f"../{self.protein}"
-            self._run_args(["obabel",
+            util.run_args(["obabel",
                             "-ipdb", protein_file,
                             "-opdbqt", "-O", f"{protein_file}qt",
-                            "-p", "-xr"])
+                            "-p", "-xr"], log=self.log)
             # for -p: see https://openbabel.org/docs/dev/Command-line_tools/babel.html
             # for -xr: see http://openbabel.org/docs/current/FileFormats/Overview.html
             # -xr eliminates flexibility on side chains
@@ -170,7 +169,7 @@ class Predictor:
             self.protein = f"{self.protein}qt"
 
         # convert .sdf ligands to .pdbqt
-        self._run_args(["obabel",
+        util.run_args(["obabel",
                         "-isdf", f"{self.id}.sdf",
                         "-opdbqt", "-O", f"{self.id}_.pdbqt",
-                        "-m"])
+                        "-m"], log=self.log)
