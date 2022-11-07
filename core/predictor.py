@@ -11,7 +11,7 @@ from schrodinger import structure
 from schrodinger.pipeline.stages.qikprop import QikPropStage as qp
 
 
-class Predictor:
+class Predictor(threading.Thread):
     """
     predict the properties of a set of molecules
     methods should run in order: prepare_sdf, qikprop, dock_score
@@ -21,8 +21,8 @@ class Predictor:
         """
         initializer. make sure that open babel is installed and added to PATH
         :param mols: a list of SMILES string
-        :param protein: a .pdb or .pdbqt filename
-        :param dock_config: a .txt configure filename. contains information about the docking box etc.
+        :param protein: a .pdb or .pdbqt filename (relative path)
+        :param dock_config: a .txt configure filename. contains information about the docking box etc. (relative path)
         :param dock_method: docking method, vina by default.
                             supported methods: vina
         :param log: log file. will be set to stdout if "stdout" is passed
@@ -49,9 +49,9 @@ class Predictor:
         Makes predictions.
         :return: a pd.DataFrame contains the predictions
         """
+        os.chdir("./scratch")
         self.prepare_sdf()
 
-        os.chdir("./scratch")
         t_qikprop = threading.Thread(target=self.qikprop)
         t_dock = threading.Thread(target=self.dock_score)
         t_qikprop.start()
@@ -64,7 +64,7 @@ class Predictor:
 
         return self.predictions
 
-    def prepare_sdf(self):
+    def prepare_sdf(self) -> None:
         """
         Prepares sdf file of the molecules
         """
@@ -72,13 +72,13 @@ class Predictor:
         m_list = [structure.SmilesStructure(m).get3dStructure(require_stereo=False) for m in self.mols]
         # TODO: fix this for cases with chirality
 
-        with open(f"./scratch/{self.id}.sdf", 'w') as file:
+        with open(f"{self.id}.sdf", 'w') as file:
             pass  # create empty file under scratch folder
-        with structure.StructureWriter(f"./scratch/{self.id}.sdf") as writer:
+        with structure.StructureWriter(f"{self.id}.sdf") as writer:
             for m in m_list:
                 writer.append(m)
 
-    def qikprop(self):
+    def qikprop(self) -> None:
         """
         Makes qikprop prediction. Requires sdf files of the molecules.
         TODO: use self._run_args(["qikprop",...]) may make abstraction clearer
@@ -98,7 +98,7 @@ class Predictor:
 
         print("-qikprop DONE")
 
-    def delete_scratch(self):
+    def delete_scratch(self) -> None:
         # assume we are under ./scratch directory now
         file_list = os.listdir(".")
         for f in file_list:
@@ -111,7 +111,7 @@ class Predictor:
         self.log.write(f"-{args[0]} STDOUT:\n" + cp.stdout)
         self.log.write(f"-{args[0]} STDERR:\n" + cp.stderr)
 
-    def dock_score(self):
+    def dock_score(self) -> None:
         """
         Computes docking score. Requires sdf file for the molecules in current directory.
         NOTE: everything is done under ./scratch directory
@@ -153,7 +153,7 @@ class Predictor:
             result = float('NaN')
         return result
 
-    def _prepare_docking_file(self):
+    def _prepare_docking_file(self) -> None:
 
         # convert .pdb to .pdbqt
         if re.search(".pdbqt", self.protein) is None:
@@ -173,3 +173,18 @@ class Predictor:
                         "-isdf", f"{self.id}.sdf",
                         "-opdbqt", "-O", f"{self.id}_.pdbqt",
                         "-m"], log=self.log)
+
+
+class PredictorWrapper:
+    """
+    wrapper of predictor class
+    """
+
+    def __init__(self, protein: str, dock_config: str, dock_method: str = "vina", log: str = "stdout"):
+        self.protein = protein
+        self.dock_config = dock_config
+        self.dock_method = dock_method
+        self.log = log
+
+    def predictor_instance(self, mols: list):
+        return Predictor(mols, self.protein, self.dock_config, self.dock_method, self.log)

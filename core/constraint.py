@@ -1,3 +1,5 @@
+from collections.abc import Callable
+import pandas as pd
 
 
 class Constraint(dict):
@@ -5,8 +7,16 @@ class Constraint(dict):
     constraint type
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, dis_estimator: Callable):
+        self.dis_estimator = dis_estimator
+
+    def calculate_dis(self, prop: pd.DataFrame) -> list:
+        """
+        Runs distance estimation.
+        :param prop: the pd.DataFrame returned by Predictor.run()
+        :return: a list of floats
+        """
+        # TODO: complete this
 
 
 class DisEstimator:
