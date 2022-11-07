@@ -1,4 +1,6 @@
 import heapq
+import os
+
 import common.util as util
 import pandas as pd
 from rdkit import Chem
@@ -13,7 +15,7 @@ class Node:
     node in searching algorithm
     """
 
-    def __init__(self, mol: str, prop: pd.DataFrame = None, neighbors: list = None):
+    def __init__(self, mol: str, prop: pd.Series = None, neighbors: list = None):
         self.mol = Chem.CanonSmiles(mol)
         self.prop = prop
         self.neighbors = neighbors
@@ -32,12 +34,13 @@ class Graph:
     """
 
     def __init__(self, pred_wrapper: PredictorWrapper, constraint: Constraint, mols: list = [],
-                 mmpdb: str = DEFAULT_MMPDB, max_variable_size: int = 4):
+                 mmpdb: str = DEFAULT_MMPDB, max_variable_size: int = 4, prediction_workers: int = 1):
         self.pred_wrapper = pred_wrapper
         self.constraint = constraint
         self.pq = mols
         self.mmpdb = mmpdb
         self.max_variable_size = max_variable_size
+        self.prediction_workers = prediction_workers
 
     @staticmethod
     def _parse_mmpdb_trans_out(mmpdb_trans_out: str) -> list:
@@ -59,11 +62,25 @@ class Graph:
         mols = self._parse_mmpdb_trans_out(mmpdb_trans_out)
         node.neighbors = [Node(m) for m in mols]
 
-    def run_prediction(self, nodes: list):
-        prediction = self.pred_wrapper.predictor_instance([str(n) for n in nodes]).run()
-        dis_list = self.constraint.calculate_dis(prediction)
-        for i in range(len(nodes)):
-            nodes[i].dis_to_target = dis_list[i]
+    def run_prediction_on(self, nodes: list) -> None:
+        os.chdir("./scratch")
+        nodes_split = util.split_list(nodes, self.prediction_workers)
+        predictors = [None for i in range(self.prediction_workers)]
+        for i in range(self.prediction_workers):
+            predictors[i] = self.pred_wrapper.predictor_instance([str(n) for n in nodes_split[i]])
+            predictors[i].start()
+
+        for i in range(self.prediction_workers):
+            predictors[i].join()
+            for j in range(len(nodes_split[i])):
+                nodes_split[i][j].prop = predictors[i].predictions.loc[j]
+
+        os.chdir("..")
+
+    def estimate_dis_on(self, nodes: list):
+        self.run_prediction(nodes)
+        for n in nodes:
+            n.dis_to_target = self.constraint.calculate_dis(n.prop)
 
 
 class BeamSearchSolver(Graph):

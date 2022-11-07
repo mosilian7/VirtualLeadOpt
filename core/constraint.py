@@ -10,7 +10,7 @@ class Constraint(dict):
     def __init__(self, dis_estimator: Callable):
         self.dis_estimator = dis_estimator
 
-    def calculate_dis(self, prop: pd.DataFrame) -> list:
+    def calculate_dis(self, prop: pd.Series) -> float:
         """
         Runs distance estimation.
         :param prop: the pd.DataFrame returned by Predictor.run()

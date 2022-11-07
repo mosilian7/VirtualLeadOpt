@@ -17,7 +17,8 @@ class Predictor(threading.Thread):
     methods should run in order: prepare_sdf, qikprop, dock_score
     """
 
-    def __init__(self, mols: list, protein: str, dock_config: str, dock_method: str = "vina", log: str = "stdout"):
+    def __init__(self, mols: list, protein: str, dock_config: str,
+                 dock_method: str = "vina", dock_cpu: int = 4, log: str = "stdout"):
         """
         initializer. make sure that open babel is installed and added to PATH
         :param mols: a list of SMILES string
@@ -27,11 +28,13 @@ class Predictor(threading.Thread):
                             supported methods: vina
         :param log: log file. will be set to stdout if "stdout" is passed
         """
+        super(Predictor, self).__init__()
         self.mols = mols
         self.id = abs(hash(''.join(self.mols)))  # code will crash if id is negative. why? ask Inc. Schrodinger!
         self.protein = protein
         self.dock_config = dock_config
         self.dock_method = dock_method
+        self.dock_cpu = dock_cpu
         self.predictions = pd.DataFrame({}, index=[i for i in range(len(mols))])
         self.predictions_lock = threading.Lock()
 
@@ -44,12 +47,13 @@ class Predictor(threading.Thread):
             except IOError:
                 self.log = sys.stdout
 
-    def run(self) -> pd.DataFrame:
+    def run(self) -> None:
         """
         Makes predictions.
-        :return: a pd.DataFrame contains the predictions
+        NOTE: Should be nested in
+            os.chdir("./scratch")
+            os.chdir("..")
         """
-        os.chdir("./scratch")
         self.prepare_sdf()
 
         t_qikprop = threading.Thread(target=self.qikprop)
@@ -60,9 +64,6 @@ class Predictor(threading.Thread):
         t_dock.join()
 
         self.delete_scratch()
-        os.chdir("..")
-
-        return self.predictions
 
     def prepare_sdf(self) -> None:
         """
@@ -79,6 +80,19 @@ class Predictor(threading.Thread):
                 writer.append(m)
 
     def qikprop(self) -> None:
+        """
+            Makes qikprop prediction. Requires sdf files of the molecules.
+        """
+        util.run_args([util.QIKPROP,
+                       "-fast", "-nosa", "-WAIT",
+                       f"{self.id}.sdf"], log=self.log)
+        qp_result = pd.read_csv(f"{self.id}.CSV")
+
+        self.predictions_lock.acquire()
+        self.predictions = pd.concat([self.predictions, qp_result], axis=1, join="inner")
+        self.predictions_lock.release()
+
+    def qikprop_old(self) -> None:
         """
         Makes qikprop prediction. Requires sdf files of the molecules.
         TODO: use self._run_args(["qikprop",...]) may make abstraction clearer
@@ -127,6 +141,7 @@ class Predictor(threading.Thread):
                             "--receptor", f"../{self.protein}",
                             "--ligand", f"{self.id}_{i+1}.pdbqt",
                             "--out", out_file,
+                            "--cpu", str(self.dock_cpu),
                             "--config", f"../{self.dock_config}"], log=self.log)
             # vina usage: see https://vina.scripps.edu/manual/#usage
             # i+1: ligands pdbqt files split by openbabel start at index 1
@@ -180,11 +195,12 @@ class PredictorWrapper:
     wrapper of predictor class
     """
 
-    def __init__(self, protein: str, dock_config: str, dock_method: str = "vina", log: str = "stdout"):
+    def __init__(self, protein: str, dock_config: str, dock_method: str = "vina", dock_cpu: int = 1, log: str = "stdout"):
         self.protein = protein
         self.dock_config = dock_config
         self.dock_method = dock_method
+        self.dock_cpu = dock_cpu
         self.log = log
 
     def predictor_instance(self, mols: list):
-        return Predictor(mols, self.protein, self.dock_config, self.dock_method, self.log)
+        return Predictor(mols, self.protein, self.dock_config, self.dock_method, self.dock_cpu, self.log)
