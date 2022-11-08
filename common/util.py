@@ -22,10 +22,11 @@ def run_args(args, logging=True, log=sys.stdout):
     cp = subprocess.run(args, shell=True, capture_output=True, encoding="utf-8", errors="ignore")
 
     if logging:
-        curr_time = time.strftime('%H:%M:%S',time.localtime(time.time()))
-        log.write(f"[{curr_time}] {args[0]} STDOUT:\n" + cp.stdout)
+        curr_time = time.strftime('%H:%M:%S', time.localtime(time.time()))
+        if len(cp.stdout) > 0:
+            log.write(f"\033[31m[{curr_time}] {args[0]} STDOUT:\033[0m\n" + cp.stdout)
         if len(cp.stderr) > 0:
-            log.write(f"[{curr_time}] {args[0]} STDERR:\n" + cp.stderr)
+            log.write(f"\033[32m[{curr_time}] {args[0]} STDERR:\033[0m\n" + cp.stderr)
     return cp.stdout
 
 

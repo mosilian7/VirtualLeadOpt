@@ -13,8 +13,8 @@ from schrodinger.pipeline.stages.qikprop import QikPropStage as qp
 
 class Predictor(threading.Thread):
     """
-    predict the properties of a set of molecules
-    methods should run in order: prepare_sdf, qikprop, dock_score
+        predict the properties of a set of molecules
+        NOTE: public methods should run under ./scratch directory
     """
 
     def __init__(self, mols: list, protein: str, dock_config: str,
@@ -49,10 +49,11 @@ class Predictor(threading.Thread):
 
     def run(self) -> None:
         """
-        Makes predictions.
-        NOTE: Should be nested in
-            os.chdir("./scratch")
-            os.chdir("..")
+            Makes predictions.
+            TODO: split this
+            NOTE: Should be nested in
+                os.chdir("./scratch")
+                os.chdir("..")
         """
         self.prepare_sdf()
 
@@ -67,7 +68,7 @@ class Predictor(threading.Thread):
 
     def prepare_sdf(self) -> None:
         """
-        Prepares sdf file of the molecules
+            Prepares sdf file of the molecules
         """
         # list of 3d structures
         m_list = [structure.SmilesStructure(m).get3dStructure(require_stereo=False) for m in self.mols]
@@ -92,27 +93,11 @@ class Predictor(threading.Thread):
         self.predictions = pd.concat([self.predictions, qp_result], axis=1, join="inner")
         self.predictions_lock.release()
 
-    def qikprop_old(self) -> None:
-        """
-        Makes qikprop prediction. Requires sdf files of the molecules.
-        TODO: use self._run_args(["qikprop",...]) may make abstraction clearer
-        """
-        print("-qikprop STDOUT/STDERR:")
-
-        qp_solver = qp(f"{self.id}")
-        ligandsobj = pipeio.Structures([f"{self.id}.sdf"])
-        qp_solver.setInput(1, 'INPUT', ligandsobj)  # magic number 1? ask Inc. Schrodinger!
-        qp_solver.setOutputName(1, 'OUTPUT')
-        qp_solver.run(verbosity="quiet")
-        qp_result = pd.read_csv(f"{self.id}-001.CSV")  # why -001? ask Inc. Schrodinger!
-
-        self.predictions_lock.acquire()
-        self.predictions = pd.concat([self.predictions, qp_result], axis=1, join="inner")
-        self.predictions_lock.release()
-
-        print("-qikprop DONE")
-
     def delete_scratch(self) -> None:
+        """
+            Deletes scratch files.
+        """
+
         # assume we are under ./scratch directory now
         file_list = os.listdir(".")
         for f in file_list:
@@ -169,6 +154,7 @@ class Predictor(threading.Thread):
         return result
 
     def _prepare_docking_file(self) -> None:
+        # prepare .pdbqt files
 
         # convert .pdb to .pdbqt
         if re.search(".pdbqt", self.protein) is None:
@@ -192,15 +178,22 @@ class Predictor(threading.Thread):
 
 class PredictorWrapper:
     """
-    wrapper of predictor class
+    Wrapper of predictor class.
     """
 
-    def __init__(self, protein: str, dock_config: str, dock_method: str = "vina", dock_cpu: int = 1, log: str = "stdout"):
+    def __init__(self, protein: str, dock_config: str, dock_method: str = "vina",
+                 dock_cpu: int = 1, log: str = "stdout"):
         self.protein = protein
         self.dock_config = dock_config
         self.dock_method = dock_method
         self.dock_cpu = dock_cpu
         self.log = log
 
-    def predictor_instance(self, mols: list):
+    def predictor_instance(self, mols: list) -> Predictor:
+        """
+        Creates a Predictor instance which makes prediction on properties of a list of molecules.
+        :param mols: a list of SMILES strings
+        :return: a Predictor instance
+        """
         return Predictor(mols, self.protein, self.dock_config, self.dock_method, self.dock_cpu, self.log)
+

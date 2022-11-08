@@ -29,14 +29,4 @@ class foo(threading.Thread):
     def bar(self):
         print(self.size)
 
-threads = [None for i in range(10)]
-
-for i in range(10):
-    threads[i] = foo(i)
-    threads[i].start()
-
-
-for i in range(10):
-
-    threads[i].join()
-    threads[i].bar()
+print()
