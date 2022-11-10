@@ -3,6 +3,7 @@ import sys
 from rdkit import Chem
 from rdkit.Chem import Draw
 import time
+import math
 
 # path of dependencies
 VINA = "D:\\Program Files (x86)\\The Scripps Research Institute\\Vina\\vina"
@@ -24,9 +25,9 @@ def run_args(args, logging=True, log=sys.stdout):
     if logging:
         curr_time = time.strftime('%H:%M:%S', time.localtime(time.time()))
         if len(cp.stdout) > 0:
-            log.write(f"\033[31m[{curr_time}] {args[0]} STDOUT:\033[0m\n" + cp.stdout)
+            log.write(f"\033[32m[{curr_time}] {args[0]} STDOUT:\033[0m\n" + cp.stdout)
         if len(cp.stderr) > 0:
-            log.write(f"\033[32m[{curr_time}] {args[0]} STDERR:\033[0m\n" + cp.stderr)
+            log.write(f"\033[31m[{curr_time}] {args[0]} STDERR:\033[0m\n" + cp.stderr)
     return cp.stdout
 
 
@@ -45,8 +46,9 @@ def split_list(l: list, share: int) -> list:
     return result
 
 
-def geometric_mean(l: list):
-    result = 1
-    for num in l:
-        result *= num
-    return result ** (1 / len(l))
+def geometric_mean(l: list, weight: list = None):
+    if weight is None:
+        weight = [1] * len(l)
+    numerator = sum([weight[i] * math.log(l[i]) for i in range(len(l))])
+    denominator = sum(weight)
+    return math.exp(numerator / denominator)

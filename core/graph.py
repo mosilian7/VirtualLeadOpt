@@ -159,7 +159,6 @@ class Graph:
         os.chdir("..")
 
     def estimate_dis_on(self, nodes: list) -> None:
-        self.run_prediction_on(nodes)
         for n in nodes:
             n.dis_to_target = self.constraint.calculate_dis(n.prop)
 
