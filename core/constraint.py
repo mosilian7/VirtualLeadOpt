@@ -1,18 +1,21 @@
 from collections.abc import Callable
 import pandas as pd
 import math
-from abc import ABCMeta, abstractmethod
 import common.util as util
 
 
 class Constraint(dict):
     """
-    constraint on the searching target
+    Constraint on the searching target.
+    The object itself is a dictionary, which contains key-value pairs where keys are the name of considered property
+    and values are the desirability function of the corresponding property. PREDEFINED_CONSTRAINT shows an example.
 
     """
 
-    def __init__(self, dis_estimator: Callable):
+    def __init__(self, dis_estimator: Callable, extra_args: dict = {}):
+        super(Constraint, self).__init__()
         self.dis_estimator = dis_estimator
+        self.extra_args = extra_args
 
     def calculate_dis(self, prop: pd.Series) -> float:
         """
@@ -20,14 +23,21 @@ class Constraint(dict):
         :param prop: the pd.DataFrame returned by Predictor.run()
         :return: a list of floats
         """
-        return self.dis_estimator(self, prop)
+        return self.dis_estimator(self, prop, **self.extra_args)
 
 
-def sigmoid_delta_dock_score(delta_dock_score: float) -> float:
-    return 1 / (1 + math.exp(delta_dock_score))
+def geometric_mean_estimator(constraint: Constraint, prop: pd.Series, **kwargs) -> float:
+    desirabilities = []
+    for item in constraint:
+        desirabilities.append(constraint[item](prop[item], **kwargs))
+    return util.geometric_mean(desirabilities)
 
 
-def eval_herg_log_ic50(herg_log_ic50: float) -> float:
+def sigmoid_delta_dock_score(dock_score: float, **kwargs) -> float:
+    return 1 / (1 + math.exp(dock_score - kwargs["orig_dock_score"]))
+
+
+def eval_herg_log_ic50(herg_log_ic50: float, **kwargs) -> float:
     if herg_log_ic50 < -6:
         return 0.01
     elif herg_log_ic50 < -5:
@@ -36,35 +46,15 @@ def eval_herg_log_ic50(herg_log_ic50: float) -> float:
         return 1
 
 
-def eval_qed(qed: float) -> float:
+def eval_qed(qed: float, **kwargs) -> float:
     return qed
 
 
-PREDEFINED_CONSTRAINT = Constraint(None)
+PREDEFINED_CONSTRAINT = Constraint(geometric_mean_estimator)
 PREDEFINED_CONSTRAINT["delta_dock_score"] = sigmoid_delta_dock_score
 PREDEFINED_CONSTRAINT["QPlogHERG"] = eval_herg_log_ic50
 PREDEFINED_CONSTRAINT["qed"] = eval_qed
 
-
-class DisEstimator:
-    """
-    distance estimator
-    """
-    __metaclass__ = ABCMeta
-
-    @staticmethod
-    @abstractmethod
-    def estimate(constraint: Constraint, prop: pd.Series) -> float:
-        pass
-
-
-class GeometricMean(DisEstimator):
-    @staticmethod
-    def estimate(constraint: Constraint, prop: pd.Series) -> float:
-        desirabilities = []
-        for item in constraint:
-            desirabilities.append(constraint[item](prop[item]))
-        return util.geometric_mean(desirabilities)
 
 
 
