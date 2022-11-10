@@ -43,3 +43,10 @@ def split_list(l: list, share: int) -> list:
     for i in range(len_per_share * share, len(l)):
         result[i - len_per_share * share].append(l[i])
     return result
+
+
+def geometric_mean(l: list):
+    result = 1
+    for num in l:
+        result *= num
+    return result ** (1 / len(l))

@@ -8,6 +8,9 @@ import pandas as pd
 import schrodinger.pipeline.pipeio as pipeio
 import common.util as util
 from schrodinger import structure
+from rdkit import Chem
+from rdkit.Chem import AllChem
+from rdkit.Chem import QED
 from schrodinger.pipeline.stages.qikprop import QikPropStage as qp
 
 
@@ -37,6 +40,7 @@ class Predictor(threading.Thread):
         self.dock_cpu = dock_cpu
         self.predictions = pd.DataFrame({}, index=[i for i in range(len(mols))])
         self.predictions_lock = threading.Lock()
+        self.mol_list = [Chem.MolFromSmiles(smiles) for smiles in self.mols]
 
         if log == "stdout":
             self.log = sys.stdout
@@ -70,6 +74,19 @@ class Predictor(threading.Thread):
         """
             Prepares sdf file of the molecules
         """
+        m_list = [Chem.MolFromSmiles(smi) for smi in self.mols]
+        hm_list = [Chem.AddHs(m) for m in m_list]
+        writer = Chem.SDWriter(f'{self.id}.sdf')
+        for mol in hm_list:
+            AllChem.EmbedMolecule(mol, AllChem.ETKDG())
+            AllChem.UFFOptimizeMolecule(mol, 1000)
+            writer.write(mol)
+        writer.close()
+
+    def prepare_sdf_old(self) -> None:
+        """
+            Prepares sdf file of the molecules. Deprecated.
+        """
         # list of 3d structures
         m_list = [structure.SmilesStructure(m).get3dStructure(require_stereo=False) for m in self.mols]
         # TODO: fix this for cases with chirality
@@ -79,6 +96,12 @@ class Predictor(threading.Thread):
         with structure.StructureWriter(f"{self.id}.sdf") as writer:
             for m in m_list:
                 writer.append(m)
+
+    def qed(self) -> None:
+        qed_list = [QED.qed(m) for m in self.mol_list]
+        self.predictions_lock.acquire()
+        self.predictions['qed'] = qed_list
+        self.predictions_lock.release()
 
     def qikprop(self) -> None:
         """
@@ -91,6 +114,16 @@ class Predictor(threading.Thread):
 
         self.predictions_lock.acquire()
         self.predictions = pd.concat([self.predictions, qp_result], axis=1, join="inner")
+        self.predictions_lock.release()
+
+    def num_arom_ring(self) -> None:
+        """
+            Counts the number of aromatic rings.
+        """
+        num_arom_ring_list = [Chem.rdMolDescriptors.CalcNumAromaticRings(m) for m in self.mol_list]
+
+        self.predictions_lock.acquire()
+        self.predictions['num_arom_ring'] = num_arom_ring_list
         self.predictions_lock.release()
 
     def delete_scratch(self) -> None:
