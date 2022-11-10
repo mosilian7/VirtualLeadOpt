@@ -83,20 +83,6 @@ class Predictor(threading.Thread):
             writer.write(mol)
         writer.close()
 
-    def prepare_sdf_old(self) -> None:
-        """
-            Prepares sdf file of the molecules. Deprecated.
-        """
-        # list of 3d structures
-        m_list = [structure.SmilesStructure(m).get3dStructure(require_stereo=False) for m in self.mols]
-        # TODO: fix this for cases with chirality
-
-        with open(f"{self.id}.sdf", 'w') as file:
-            pass  # create empty file under scratch folder
-        with structure.StructureWriter(f"{self.id}.sdf") as writer:
-            for m in m_list:
-                writer.append(m)
-
     def qed(self) -> None:
         qed_list = [QED.qed(m) for m in self.mol_list]
         self.predictions_lock.acquire()
