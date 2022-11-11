@@ -42,6 +42,9 @@ def sigmoid_delta_dock_score(dock_score: float, **kwargs) -> float:
 
 
 def eval_herg_log_ic50(herg_log_ic50: float, **kwargs) -> float:
+    if math.isnan(herg_log_ic50):
+        return 0
+
     if herg_log_ic50 < -5.99:
         return 0.01
     elif herg_log_ic50 < -5:
@@ -51,11 +54,14 @@ def eval_herg_log_ic50(herg_log_ic50: float, **kwargs) -> float:
 
 
 def eval_qed(qed: float, **kwargs) -> float:
+    if math.isnan(qed):
+        return 0
+
     return qed
 
 
 PREDEFINED_CONSTRAINT = Constraint(geometric_mean_evaluator)
 PREDEFINED_CONSTRAINT["dock_score"] = (sigmoid_delta_dock_score, 1, -float('inf'))
-PREDEFINED_CONSTRAINT["QPlogHERG"] = (eval_herg_log_ic50, 0.5, -float('inf'))
-PREDEFINED_CONSTRAINT["qed"] = (eval_qed, 0.8, 0)
+PREDEFINED_CONSTRAINT["QPlogHERG"] = (eval_herg_log_ic50, 0.5, float('nan'))
+PREDEFINED_CONSTRAINT["qed"] = (eval_qed, 0.8, float('nan'))
 

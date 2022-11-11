@@ -1,4 +1,3 @@
-import heapq
 import os
 import threading
 import random
@@ -77,7 +76,11 @@ class MultiThreadPredictor:
         mask = {} if mask is None else mask
         self.update_mask(mask)
 
-    def update_mask(self, mask: dict):
+    def update_mask(self, mask: dict) -> None:
+        """
+        Update masking of each predictor in self.predictors.
+        :param mask: masking directory
+        """
         mask_split = {}
         for k in mask:
             mask_split[k] = util.split_list(mask[k], self.prediction_workers)
@@ -121,7 +124,7 @@ class Graph:
         A graph contains some information that is going to be used when implementing searching algorithm.
         :param predictor_wrapper: a PredictorWrapper object
         :param constraint: a Constraint object
-        :param mols:
+        :param mols: source molecules
         :param mmpdb: mmp database used in find_neighbors
         :param max_variable_size: parameter in mmp transform
         :param prediction_workers: number of threads
@@ -217,6 +220,9 @@ class BeamSearchSolver(Graph):
         self.history = []
 
     def run(self):
+        """
+            Run the algorithm.
+        """
         # TODO: thread safety
         self.start_up()
         self.history = [(self.fringe.copy(), self.result.copy())]
@@ -228,13 +234,16 @@ class BeamSearchSolver(Graph):
             self.give_chance_to_discarded()
 
     def _save_checkpoint(self):
+        # Serialize this.
         with open(self.checkpoint, "wb") as f:
             pickle.dump(self, f)
         print("checkpoint saved")
 
     def _to_be_predicted(self) -> list:
+        # Returns molecules that will undergo prediction next.
         curr = set()
         run_prediction = []
+
         # Find neighbors for each node in self.fringe.
         for n in self.fringe:
             if n.neighbors is None:
@@ -247,11 +256,14 @@ class BeamSearchSolver(Graph):
             run_prediction.append(n)
 
         random.shuffle(run_prediction)
+
+        # Because of limited resource, prediction will only run on a part of molecules.
         run_prediction = run_prediction[:int(self.exhaustiveness * len(run_prediction))]
 
         return run_prediction
 
     def _clipping(self, run_prediction) -> dict:
+        # Clip the out-of-bound molecules, so that they don't have to dock.
         mask = {"docking": [False] * len(run_prediction)}
         bound = min(self.fringe).evaluation
         for i in range(len(run_prediction)):
@@ -261,17 +273,22 @@ class BeamSearchSolver(Graph):
         return mask
 
     def _dedup_and_sort(self):
+        # Deduplicate and sort the fringe.
         no_dup = set(self.fringe)
         self.fringe = list(no_dup)
         self.fringe = sorted(self.fringe, reverse=True)
 
     def _update_result(self):
+        # If a molecule has evaluation > pass line, then adds it to self.result.
         i = 0
         while self.fringe[i].evaluation > self.pass_line:
             self.result.add(self.fringe[i])
             i += 1
 
-    def one_step(self):
+    def one_step(self) -> None:
+        """
+            One iteration step in the algorithm.
+        """
 
         run_prediction = self._to_be_predicted()
 
@@ -301,6 +318,9 @@ class BeamSearchSolver(Graph):
         self.fringe = self.fringe[:self.beam_width]
 
     def give_chance_to_discarded(self):
+        """
+            Adds some discarded molecules to the fringe.
+        """
         if len(self.discard) > 0:
             s = set()
             l = list(self.discard)
@@ -310,9 +330,15 @@ class BeamSearchSolver(Graph):
             no_dup.update(s)
             self.fringe = list(no_dup)
 
-    def start_up(self):
+    def start_up(self) -> None:
+        """
+            Starts up from source molecule.
+        """
+
+        # there is only one source molecule, so more dock cpu is used
         orig_dock_cpu = self.predictor_wrapper.dock_cpu
         self.predictor_wrapper.dock_cpu = 12
+
         mtp = MultiThreadPredictor([self.source_mol], self.predictor_wrapper, prediction_workers=1)
         mtp.run_predictor_method("prepare_sdf", update_node=False)
         mtp.run_predictor_method("qed")

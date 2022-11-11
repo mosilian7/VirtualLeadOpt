@@ -98,7 +98,7 @@ class Predictor(threading.Thread):
         util.run_args([util.QIKPROP,
                        "-fast", "-nosa", "-WAIT",
                        f"{self.id}.sdf"], log=self.log)
-        qp_result = pd.read_csv(f"{self.id}.CSV")
+        qp_result = pd.read_csv(f"{self.id}.CSV", on_bad_lines=lambda x: x, engine='python')
 
         self.predictions_lock.acquire()
         self.predictions = pd.concat([self.predictions, qp_result], axis=1, join="inner")
