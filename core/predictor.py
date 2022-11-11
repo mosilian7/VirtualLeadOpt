@@ -5,13 +5,10 @@ import subprocess
 import threading
 
 import pandas as pd
-import schrodinger.pipeline.pipeio as pipeio
 import common.util as util
-from schrodinger import structure
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem import QED
-from schrodinger.pipeline.stages.qikprop import QikPropStage as qp
 
 
 class Predictor(threading.Thread):
@@ -20,21 +17,23 @@ class Predictor(threading.Thread):
         NOTE: public methods should run under ./scratch directory
     """
 
-    def __init__(self, mols: list, protein: str, dock_config: str,
+    def __init__(self, mols: list, protein: str, dock_config: str, mask: dict = None,
                  dock_method: str = "vina", dock_cpu: int = 4, log: str = "stdout"):
         """
         initializer. make sure that open babel is installed and added to PATH
         :param mols: a list of SMILES string
         :param protein: a .pdb or .pdbqt filename (relative path)
         :param dock_config: a .txt configure filename. contains information about the docking box etc. (relative path)
+        :param mask: masking dictionary
         :param dock_method: docking method, vina by default.
                             supported methods: vina
         :param log: log file. will be set to stdout if "stdout" is passed
         """
         super(Predictor, self).__init__()
         self.mols = mols
-        self.id = abs(hash(''.join(self.mols)))  # code will crash if id is negative. why? ask Inc. Schrodinger!
+        self.id = abs(hash(''.join(self.mols)))  # code will crash if id is negative.
         self.protein = protein
+        self.mask = {} if mask is None else mask
         self.dock_config = dock_config
         self.dock_method = dock_method
         self.dock_cpu = dock_cpu
@@ -53,8 +52,7 @@ class Predictor(threading.Thread):
 
     def run(self) -> None:
         """
-            Makes predictions.
-            TODO: split this
+            Makes predictions. Deprecated?
             NOTE: Should be nested in
                 os.chdir("./scratch")
                 os.chdir("..")
@@ -84,6 +82,10 @@ class Predictor(threading.Thread):
         writer.close()
 
     def qed(self) -> None:
+        """
+            Calculates QED score.
+            see https://www.nature.com/articles/nchem.1243 Quantifying the chemical beauty of drugs
+        """
         qed_list = [QED.qed(m) for m in self.mol_list]
         self.predictions_lock.acquire()
         self.predictions['qed'] = qed_list
@@ -140,6 +142,8 @@ class Predictor(threading.Thread):
         results = []
 
         for i in range(len(self.mols)):
+            if "docking" in self.mask and self.mask["docking"][i]:
+                continue
             out_file = f"{self.id}_{i+1}_out.pdbqt"
             util.run_args(["vina",
                             "--receptor", f"../{self.protein}",
@@ -150,7 +154,6 @@ class Predictor(threading.Thread):
             # vina usage: see https://vina.scripps.edu/manual/#usage
             # i+1: ligands pdbqt files split by openbabel start at index 1
             # ../self.protein: ugliest code in this class. schrodinger api doesn't allow to change output filename
-            # TODO: about schrodinger api
 
             result = self._parse_vina_out(out_file)
             results.append(result)
@@ -208,11 +211,12 @@ class PredictorWrapper:
         self.dock_cpu = dock_cpu
         self.log = log
 
-    def predictor_instance(self, mols: list) -> Predictor:
+    def predictor_instance(self, mols: list, mask: dict = None) -> Predictor:
         """
         Creates a Predictor instance which makes prediction on properties of a list of molecules.
         :param mols: a list of SMILES strings
+        :param mask: masking dictionary
         :return: a Predictor instance
         """
-        return Predictor(mols, self.protein, self.dock_config, self.dock_method, self.dock_cpu, self.log)
+        return Predictor(mols, self.protein, self.dock_config, mask, self.dock_method, self.dock_cpu, self.log)
 

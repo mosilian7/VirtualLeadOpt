@@ -1,6 +1,8 @@
 import heapq
 import os
 import threading
+import random
+import pickle
 
 import common.util as util
 import pandas as pd
@@ -25,15 +27,15 @@ class Node:
         :param neighbors: "similar" molecules discovered by mmp transform
         """
         self.mol = Chem.CanonSmiles(mol)
-        self.prop = prop
+        self.prop = pd.Series([], dtype=float) if prop is None else prop
         self.neighbors = neighbors
-        self.dis_to_target = float('inf')
+        self.evaluation = 0
 
     def __str__(self):
         return self.mol
 
     def __lt__(self, other):
-        return self.dis_to_target < other.dis_to_target
+        return self.evaluation < other.evaluation
 
     def __eq__(self, other):
         return self.mol == other.mol
@@ -41,12 +43,24 @@ class Node:
     def __hash__(self):
         return hash(self.mol)
 
+    def qed_done(self) -> bool:
+        return "qed" in self.prop
+
+    def qikprop_done(self) -> bool:
+        return "QPlogS" in self.prop
+
+    def docking_done(self) -> bool:
+        return "dock_score" in self.prop
+
+    def prediction_done(self) -> bool:
+        return self.qed_done() and self.qikprop_done() and self.docking_done()
+
 
 class MultiThreadPredictor:
     """
     use multiple predictors to perform prediction on a set of nodes
     """
-    def __init__(self, nodes: list, predictor_wrapper: PredictorWrapper, prediction_workers: int):
+    def __init__(self, nodes: list, predictor_wrapper: PredictorWrapper, prediction_workers: int, mask: dict = None):
         """
         Initializer of a MultiThreadPredictor
         :param nodes: corresponds to a set of molecules
@@ -57,8 +71,21 @@ class MultiThreadPredictor:
         self.predictor_wrapper = predictor_wrapper
         self.prediction_workers = prediction_workers
         self.predictors = []
-        for ns in self.nodes_split:
-            self.predictors.append(self.predictor_wrapper.predictor_instance([str(n) for n in ns]))
+        for i in range(self.prediction_workers):
+            self.predictors.append(self.predictor_wrapper
+                                   .predictor_instance([str(n) for n in self.nodes_split[i]]))
+        mask = {} if mask is None else mask
+        self.update_mask(mask)
+
+    def update_mask(self, mask: dict):
+        mask_split = {}
+        for k in mask:
+            mask_split[k] = util.split_list(mask[k], self.prediction_workers)
+        for i in range(self.prediction_workers):
+            mask_dict = {}
+            for k in mask:
+                mask_dict[k] = mask_split[k][i]
+            self.predictors[i].mask = mask_dict
 
     def run_predictor_method(self, method: str, update_node: bool = True) -> None:
         """
@@ -101,7 +128,7 @@ class Graph:
         """
         self.predictor_wrapper = predictor_wrapper
         self.constraint = constraint
-        self.pq = mols
+        self.fringe = mols
         self.mmpdb = mmpdb
         self.max_variable_size = max_variable_size
 
@@ -109,12 +136,15 @@ class Graph:
         self.predictors = [None for i in range(self.prediction_workers)]
         self.nodes_split = None
 
-    def multi_thread_predictor(self, nodes: list) -> MultiThreadPredictor:
+    def multi_thread_predictor(self, nodes: list, mask: dict = None) -> MultiThreadPredictor:
         """
         Returns a MultiThreadPredictor that performs predictions on a set of nodes
         :param nodes: a list of Node
+        :param mask: masking dictionary
         """
-        return MultiThreadPredictor(nodes, self.predictor_wrapper, self.prediction_workers)
+        if mask is None:
+            mask = {"docking": [False] * len(nodes)}
+        return MultiThreadPredictor(nodes, self.predictor_wrapper, self.prediction_workers, mask=mask)
 
     @staticmethod
     def _parse_mmpdb_trans_out(mmpdb_trans_out: str) -> list:
@@ -142,7 +172,7 @@ class Graph:
 
     def run_prediction_on(self, nodes: list) -> None:
         """
-        Runs prediction on a list of nodes.
+        Runs prediction on a list of nodes. Deprecated?
         :param nodes: a list of Node
         """
         os.chdir("./scratch")
@@ -158,9 +188,9 @@ class Graph:
 
         os.chdir("..")
 
-    def estimate_dis_on(self, nodes: list) -> None:
+    def evaluate(self, nodes: list) -> None:
         for n in nodes:
-            n.dis_to_target = self.constraint.calculate_dis(n.prop)
+            n.evaluation = self.constraint.eval_property(n.prop)
 
 
 class BeamSearchSolver(Graph):
@@ -168,16 +198,131 @@ class BeamSearchSolver(Graph):
     search the chemical space by beam search
     """
 
-    def __init__(self, predictor_wrapper: PredictorWrapper, constraint: Constraint, iter_num: int,
-                 mols: list = [], mmpdb: str = DEFAULT_MMPDB, max_variable_size: int = 4):
-        super(BeamSearchSolver, self).__init__(predictor_wrapper, constraint, mols, mmpdb, max_variable_size)
+    def __init__(self, predictor_wrapper: PredictorWrapper, constraint: Constraint,
+                 iter_num: int, beam_width: int, exhaustiveness: float, epsilon: float, source_mol: Node,
+                 pass_line: float = 0.9, checkpoint: str = "bss_checkpoint",
+                 mmpdb: str = DEFAULT_MMPDB, max_variable_size: int = 4, prediction_workers: int = 1):
+        super(BeamSearchSolver, self).__init__(predictor_wrapper, constraint, [source_mol],
+                                               mmpdb, max_variable_size, prediction_workers)
+        self.source_mol = source_mol
         self.iter_num = iter_num
+        self.beam_width = beam_width
+        self.exhaustiveness = exhaustiveness
+        self.retry_chance = int(beam_width * epsilon)
         self.discard = set()
-        heapq.heapify(self.pq)
+        self.pass_line = pass_line
+        self.result = set()
+        self.error = set()
+        self.checkpoint = checkpoint
+        self.history = []
 
     def run(self):
         # TODO: thread safety
-        pass
+        self.start_up()
+        self.history = [(self.fringe.copy(), self.result.copy())]
+        for i in range(self.iter_num):
+            self.one_step()
+            print(f"\033[32mIteration {i} finished\033[0m")
+            self.history.append((self.fringe.copy(), self.result.copy()))
+            self._save_checkpoint()
+            self.give_chance_to_discarded()
+
+    def _save_checkpoint(self):
+        with open(self.checkpoint, "wb") as f:
+            pickle.dump(self, f)
+        print("checkpoint saved")
+
+    def _to_be_predicted(self) -> list:
+        curr = set()
+        run_prediction = []
+        # Find neighbors for each node in self.fringe.
+        for n in self.fringe:
+            if n.neighbors is None:
+                self.find_neighbors(n)
+            curr.update(set(n.neighbors))
+
+        for n in curr:
+            if n.prediction_done() or n in self.discard or n in self.result:
+                continue
+            run_prediction.append(n)
+
+        random.shuffle(run_prediction)
+        run_prediction = run_prediction[:int(self.exhaustiveness * len(run_prediction))]
+
+        return run_prediction
+
+    def _clipping(self, run_prediction) -> dict:
+        mask = {"docking": [False] * len(run_prediction)}
+        bound = min(self.fringe).evaluation
+        for i in range(len(run_prediction)):
+            if run_prediction[i].evaluation < bound:
+                self.discard.add(run_prediction[i])
+                mask["docking"][i] = True
+        return mask
+
+    def _dedup_and_sort(self):
+        no_dup = set(self.fringe)
+        self.fringe = list(no_dup)
+        self.fringe = sorted(self.fringe, reverse=True)
+
+    def _update_result(self):
+        i = 0
+        while self.fringe[i].evaluation > self.pass_line:
+            self.result.add(self.fringe[i])
+            i += 1
+
+    def one_step(self):
+
+        run_prediction = self._to_be_predicted()
+
+        mtp = self.multi_thread_predictor(run_prediction)
+        mtp.run_predictor_method("prepare_sdf", update_node=False)
+        mtp.run_predictor_method("qed")
+        mtp.run_predictor_method("qikprop")
+
+        # this is not the true distance!
+        self.evaluate(run_prediction)
+
+        mask = self._clipping(run_prediction)
+        mtp.update_mask(mask)
+
+        mtp.run_predictor_method("dock_score")
+        mtp.run_predictor_method("delete_scratch", update_node=False)
+
+        self.evaluate(run_prediction)
+        self.fringe.extend(run_prediction)
+        self._dedup_and_sort()
+        self._update_result()
+
+        for n in self.fringe[self.beam_width:]:
+            self.discard.add(n)
+
+        # update fringe
+        self.fringe = self.fringe[:self.beam_width]
+
+    def give_chance_to_discarded(self):
+        if len(self.discard) > 0:
+            s = set()
+            l = list(self.discard)
+            for i in range(self.retry_chance):
+                s.add(random.choice(l))
+            no_dup = set(self.fringe)
+            no_dup.update(s)
+            self.fringe = list(no_dup)
+
+    def start_up(self):
+        orig_dock_cpu = self.predictor_wrapper.dock_cpu
+        self.predictor_wrapper.dock_cpu = 12
+        mtp = MultiThreadPredictor([self.source_mol], self.predictor_wrapper, prediction_workers=1)
+        mtp.run_predictor_method("prepare_sdf", update_node=False)
+        mtp.run_predictor_method("qed")
+        mtp.run_predictor_method("qikprop")
+        mtp.run_predictor_method("dock_score")
+        mtp.run_predictor_method("delete_scratch", update_node=False)
+        self.predictor_wrapper.dock_cpu = orig_dock_cpu
+        self.constraint.extra_args["orig_dock_score"] = self.source_mol.prop["dock_score"]
+        self.evaluate([self.source_mol])
+
 
 
 
