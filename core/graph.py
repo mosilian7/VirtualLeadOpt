@@ -66,9 +66,9 @@ class MultiThreadPredictor:
         :param predictor_wrapper: a PredictorWrapper object
         :param prediction_workers: number of threads
         """
-        self.nodes_split = util.split_list(nodes, prediction_workers)
         self.predictor_wrapper = predictor_wrapper
-        self.prediction_workers = prediction_workers
+        self.prediction_workers = len(nodes) if prediction_workers > len(nodes) else prediction_workers
+        self.nodes_split = util.split_list(nodes, self.prediction_workers)
         self.predictors = []
         for i in range(self.prediction_workers):
             self.predictors.append(self.predictor_wrapper

@@ -21,7 +21,7 @@ class Predictor(threading.Thread):
                  dock_method: str = "vina", dock_cpu: int = 4, log: str = "stdout"):
         """
         initializer. make sure that open babel is installed and added to PATH
-        :param mols: a list of SMILES string
+        :param mols: a list of SMILES string. Should never be empty!
         :param protein: a .pdb or .pdbqt filename (relative path)
         :param dock_config: a .txt configure filename. contains information about the docking box etc. (relative path)
         :param mask: masking dictionary
@@ -139,13 +139,52 @@ class Predictor(threading.Thread):
         """
 
         self._prepare_docking_file()
+
+        ligands = []
+        for i in range(len(self.mols)):
+            if "docking" in self.mask and self.mask["docking"][i]:
+                continue
+            ligands.append(f"{self.id}_{i+1}.pdbqt")
+
+        util.run_args([util.VINA,
+                       "--receptor", f"../{self.protein}",
+                       "--batch", *ligands,
+                       "--dir", ".",
+                       "--cpu", str(self.dock_cpu),
+                       "--config", f"../{self.dock_config}"], log=self.log)
+        # vina usage: see https://vina.scripps.edu/manual/#usage
+        # i+1: ligands pdbqt files split by openbabel start at index 1
+        # ../self.protein: ugliest code in this class. schrodinger api doesn't allow to change output filename
+
         results = []
 
         for i in range(len(self.mols)):
             if "docking" in self.mask and self.mask["docking"][i]:
+                results.append(float('nan'))
+                continue
+            result = self._parse_vina_out(f"{self.id}_{i+1}_out.pdbqt")
+            results.append(result)
+
+        self.predictions_lock.acquire()
+        self.predictions['dock_score'] = results
+        self.predictions_lock.release()
+
+    def dock_score_old(self) -> None:
+        """
+        Computes docking score. Requires sdf file for the molecules in current directory.
+        NOTE: everything is done under ./scratch directory
+        TODO: how to specify the docking box in the config file?
+        """
+
+        self._prepare_docking_file()
+        results = []
+
+        for i in range(len(self.mols)):
+            if "docking" in self.mask and self.mask["docking"][i]:
+                results.append(float('nan'))
                 continue
             out_file = f"{self.id}_{i+1}_out.pdbqt"
-            util.run_args(["vina",
+            util.run_args([util.VINA,
                             "--receptor", f"../{self.protein}",
                             "--ligand", f"{self.id}_{i+1}.pdbqt",
                             "--out", out_file,
@@ -181,7 +220,7 @@ class Predictor(threading.Thread):
         # convert .pdb to .pdbqt
         if re.search(".pdbqt", self.protein) is None:
             protein_file = f"../{self.protein}"
-            util.run_args(["obabel",
+            util.run_args([util.OBABEL,
                             "-ipdb", protein_file,
                             "-opdbqt", "-O", f"{protein_file}qt",
                             "-p", "-xr"], log=self.log)
@@ -192,7 +231,7 @@ class Predictor(threading.Thread):
             self.protein = f"{self.protein}qt"
 
         # convert .sdf ligands to .pdbqt
-        util.run_args(["obabel",
+        util.run_args([util.OBABEL,
                         "-isdf", f"{self.id}.sdf",
                         "-opdbqt", "-O", f"{self.id}_.pdbqt",
                         "-m"], log=self.log)

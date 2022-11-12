@@ -6,10 +6,10 @@ import time
 import math
 
 # path of dependencies
-VINA = "D:\\Program Files (x86)\\The Scripps Research Institute\\Vina\\vina"
+VINA = "D:\\py_projects\\VirtualLeadOpt\\dependency\\vina"
 OBABEL = "D:\\Program Files\\OpenBabel-3.1.1\\obabel"
-MMPDB = "D:\\py_projects\\virtual_lead_opt\\dependency\\mmpdb\\mmpdb"
-QIKPROP = "D:\\Program Files (x86)\\Schrodinger\\qikprop"
+MMPDB = "D:\\py_projects\\VirtualLeadOpt\\dependency\\mmpdb\\mmpdb"
+QIKPROP = "D:\\Program Files\\Schrodinger\\qikprop"
 
 
 def run_args(args, logging=True, log=sys.stdout):
@@ -37,6 +37,8 @@ def visualize(mols: list):
 
 
 def split_list(l: list, share: int) -> list:
+    if share > len(l):
+        share = len(l)
     result = []
     len_per_share = int(len(l)/share)
     for i in range(share):
