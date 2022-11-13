@@ -3,6 +3,7 @@ import re
 import sys
 import subprocess
 import threading
+import math
 
 import pandas as pd
 import common.util as util
@@ -91,6 +92,15 @@ class Predictor(threading.Thread):
         self.predictions['qed'] = qed_list
         self.predictions_lock.release()
 
+    @staticmethod
+    def _fix_bad_csv(csv_file: str):
+        with open(csv_file, "r") as f:
+            ls = f.readlines()
+        for i in range(len(ls)):
+            ls[i] = ls[i].replace(',' * 500, ',' * 51)
+        with open(csv_file, "w") as f:
+            f.writelines(ls)
+
     def qikprop(self) -> None:
         """
             Makes qikprop prediction. Requires sdf files of the molecules.
@@ -99,6 +109,11 @@ class Predictor(threading.Thread):
                        "-fast", "-nosa", "-WAIT",
                        f"{self.id}.sdf"], log=self.log)
         qp_result = pd.read_csv(f"{self.id}.CSV", on_bad_lines=lambda x: x, engine='python')
+
+        if math.isnan(qp_result["QPlogHERG"][0]):
+            # fix and retry
+            self._fix_bad_csv(f"{self.id}.CSV")
+            qp_result = pd.read_csv(f"{self.id}.CSV", on_bad_lines=lambda x: x, engine='python')
 
         self.predictions_lock.acquire()
         self.predictions = pd.concat([self.predictions, qp_result], axis=1, join="inner")
