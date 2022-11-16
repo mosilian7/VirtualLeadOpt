@@ -2,6 +2,7 @@ import os
 import threading
 import random
 import pickle
+from functools import reduce
 
 import common.util as util
 import pandas as pd
@@ -29,6 +30,7 @@ class Node:
         self.prop = pd.Series([], dtype=float) if prop is None else prop
         self.neighbors = neighbors
         self.evaluation = 0
+        self.evaluation_done = False
 
     def __str__(self):
         return self.mol
@@ -146,7 +148,7 @@ class Graph:
         :param mask: masking dictionary
         """
         if mask is None:
-            mask = {"docking": [False] * len(nodes)}
+            mask = {"dock_score": [False] * len(nodes)}
         return MultiThreadPredictor(nodes, self.predictor_wrapper, self.prediction_workers, mask=mask)
 
     @staticmethod
@@ -264,12 +266,13 @@ class BeamSearchSolver(Graph):
 
     def _clipping(self, run_prediction) -> dict:
         # Clip the out-of-bound molecules, so that they don't have to dock.
-        mask = {"docking": [False] * len(run_prediction)}
+        # idea of branch and bound
+        mask = {"dock_score": [False] * len(run_prediction)}
         bound = min(self.fringe).evaluation
         for i in range(len(run_prediction)):
             if run_prediction[i].evaluation < bound:
                 self.discard.add(run_prediction[i])
-                mask["docking"][i] = True
+                mask["dock_score"][i] = True
         return mask
 
     def _dedup_and_sort(self):
@@ -284,6 +287,20 @@ class BeamSearchSolver(Graph):
         while self.fringe[i].evaluation > self.pass_line:
             self.result.add(self.fringe[i])
             i += 1
+
+    def _update_fringe_and_discard(self):
+        new_fringe = []
+        i = 0
+        while len(new_fringe) < self.beam_width and i < len(self.fringe):
+            if self.fringe[i].evaluation_done:
+                new_fringe.append(self.fringe[i])
+            i += 1
+
+        for n in self.fringe:
+            if n not in new_fringe:
+                self.discard.add(n)
+
+        self.fringe = new_fringe
 
     def one_step(self) -> None:
         """
@@ -300,22 +317,26 @@ class BeamSearchSolver(Graph):
         # this is not the true distance!
         self.evaluate(run_prediction)
 
+        # branch and bound
         mask = self._clipping(run_prediction)
+        # mask the molecules that don't have to dock
         mtp.update_mask(mask)
 
         mtp.run_predictor_method("dock_score")
+
+        # mark that evaluation is done (for the molecules that haven't been masked)
+        for i in range(len(run_prediction)):
+            # if a node is masked on any property, then its evaluation is not done
+            assert("dock_score" in run_prediction[i].prop)
+            run_prediction[i].evaluation_done = not reduce(lambda x, y: x or y, [mask[k][i] for k in mask])
+
         mtp.run_predictor_method("delete_scratch", update_node=False)
 
         self.evaluate(run_prediction)
         self.fringe.extend(run_prediction)
         self._dedup_and_sort()
         self._update_result()
-
-        for n in self.fringe[self.beam_width:]:
-            self.discard.add(n)
-
-        # update fringe
-        self.fringe = self.fringe[:self.beam_width]
+        self._update_fringe_and_discard()
 
     def give_chance_to_discarded(self):
         """
@@ -349,6 +370,23 @@ class BeamSearchSolver(Graph):
         self.constraint.extra_args["orig_dock_score"] = self.source_mol.prop["dock_score"]
         self.evaluate([self.source_mol])
 
+    def summary(self) -> str:
+        result = ""
+        schema = self.constraint.keys()
+        result += "evaluation "
+        for k in schema:
+            result += f"| {k} "
+        result += "\n"
+
+        for n in self.fringe:
+            line = ""
+            line += f"{n.evaluation:.4f} "
+            for k in schema:
+                line += f"| {n.prop.get(k, default=float('nan')):.4f} "
+            line += "\n"
+            result += line
+
+        return result
 
 
 

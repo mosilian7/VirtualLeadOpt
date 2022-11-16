@@ -88,6 +88,8 @@ class Predictor(threading.Thread):
             see https://www.nature.com/articles/nchem.1243 Quantifying the chemical beauty of drugs
         """
         qed_list = [QED.qed(m) for m in self.mol_list]
+
+        assert (len(qed_list) == len(self.mols))
         self.predictions_lock.acquire()
         self.predictions['qed'] = qed_list
         self.predictions_lock.release()
@@ -115,6 +117,7 @@ class Predictor(threading.Thread):
             self._fix_bad_csv(f"{self.id}.CSV")
             qp_result = pd.read_csv(f"{self.id}.CSV", on_bad_lines=lambda x: x, engine='python')
 
+        assert(qp_result.shape[0] == len(self.mols))
         self.predictions_lock.acquire()
         self.predictions = pd.concat([self.predictions, qp_result], axis=1, join="inner")
         self.predictions_lock.release()
@@ -157,7 +160,7 @@ class Predictor(threading.Thread):
 
         ligands = []
         for i in range(len(self.mols)):
-            if "docking" in self.mask and self.mask["docking"][i]:
+            if "dock_score" in self.mask and self.mask["dock_score"][i]:
                 continue
             ligands.append(f"{self.id}_{i+1}.pdbqt")
 
@@ -174,12 +177,13 @@ class Predictor(threading.Thread):
         results = []
 
         for i in range(len(self.mols)):
-            if "docking" in self.mask and self.mask["docking"][i]:
+            if "dock_score" in self.mask and self.mask["dock_score"][i]:
                 results.append(float('nan'))
                 continue
             result = self._parse_vina_out(f"{self.id}_{i+1}_out.pdbqt")
             results.append(result)
 
+        assert(len(results) == len(self.mols))
         self.predictions_lock.acquire()
         self.predictions['dock_score'] = results
         self.predictions_lock.release()
@@ -195,7 +199,7 @@ class Predictor(threading.Thread):
         results = []
 
         for i in range(len(self.mols)):
-            if "docking" in self.mask and self.mask["docking"][i]:
+            if "dock_score" in self.mask and self.mask["dock_score"][i]:
                 results.append(float('nan'))
                 continue
             out_file = f"{self.id}_{i+1}_out.pdbqt"
@@ -219,15 +223,19 @@ class Predictor(threading.Thread):
     @staticmethod
     def _parse_vina_out(out_file) -> float:
         # parse output .pdbqt file
-        f = open(out_file)
-        lines = f.readlines()
-        f.close()
         try:
-            line = lines[1]
-            result = float(line.split(':')[1].split()[0])
-        except IndexError:
-            result = float('NaN')
-        return result
+            f = open(out_file)
+            lines = f.readlines()
+            f.close()
+            try:
+                line = lines[1]
+                result = float(line.split(':')[1].split()[0])
+            except IndexError:
+                result = float('NaN')
+            return result
+        except FileNotFoundError:
+            # when vina cannot process the input
+            return float('nan')
 
     def _prepare_docking_file(self) -> None:
         # prepare .pdbqt files
