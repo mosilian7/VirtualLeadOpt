@@ -229,11 +229,11 @@ class BeamSearchSolver(Graph):
         self.start_up()
         self.history = [(self.fringe.copy(), self.result.copy())]
         for i in range(self.iter_num):
+            self.give_chance_to_discarded()
             self.one_step()
             print(f"\033[32mIteration {i} finished\033[0m")
             self.history.append((self.fringe.copy(), self.result.copy()))
             self._save_checkpoint()
-            self.give_chance_to_discarded()
 
     def _save_checkpoint(self):
         # Serialize this.
@@ -370,7 +370,7 @@ class BeamSearchSolver(Graph):
         self.constraint.extra_args["orig_dock_score"] = self.source_mol.prop["dock_score"]
         self.evaluate([self.source_mol])
 
-    def summary(self) -> str:
+    def summary(self, nodes: list) -> str:
         result = ""
         schema = self.constraint.keys()
         result += "evaluation "
@@ -378,7 +378,7 @@ class BeamSearchSolver(Graph):
             result += f"| {k} "
         result += "\n"
 
-        for n in self.fringe:
+        for n in nodes:
             line = ""
             line += f"{n.evaluation:.4f} "
             for k in schema:
