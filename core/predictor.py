@@ -6,7 +6,7 @@ import threading
 import math
 
 import pandas as pd
-import common.util as util
+import core.util as util
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem import QED

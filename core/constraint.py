@@ -1,7 +1,7 @@
 from collections.abc import Callable
 import pandas as pd
 import math
-import common.util as util
+import core.util as util
 
 
 class Constraint(dict):

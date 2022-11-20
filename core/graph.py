@@ -4,10 +4,10 @@ import random
 import pickle
 from functools import reduce
 
-import common.util as util
+import core.util as util
 import pandas as pd
 from rdkit import Chem
-from core.predictor import Predictor, PredictorWrapper
+from core.predictor import PredictorWrapper
 from core.constraint import Constraint
 
 
