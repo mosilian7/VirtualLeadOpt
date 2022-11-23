@@ -2,6 +2,7 @@ import os
 import threading
 import random
 import pickle
+import time
 from functools import reduce
 
 import core.util as util
@@ -50,11 +51,14 @@ class Node:
     def qikprop_done(self) -> bool:
         return "QPlogS" in self.prop
 
+    def sa_score_done(self) -> bool:
+        return "sa_score" in self.prop
+
     def docking_done(self) -> bool:
         return "dock_score" in self.prop
 
     def prediction_done(self) -> bool:
-        return self.qed_done() and self.qikprop_done() and self.docking_done()
+        return self.sa_score_done() and self.docking_done()
 
 
 class MultiThreadPredictor:
@@ -220,12 +224,15 @@ class BeamSearchSolver(Graph):
         self.error = set()
         self.checkpoint = checkpoint
         self.history = []
+        self.last_elapse_time = None
 
     def run(self):
         """
             Run the algorithm.
         """
         # TODO: thread safety
+        tic = time.time()
+
         self.start_up()
         self.history = [(self.fringe.copy(), self.result.copy())]
         for i in range(self.iter_num):
@@ -234,6 +241,9 @@ class BeamSearchSolver(Graph):
             print(f"\033[32mIteration {i} finished\033[0m")
             self.history.append((self.fringe.copy(), self.result.copy()))
             self._save_checkpoint()
+
+        toc = time.time()
+        self.last_elapse_time = toc - tic
 
     def _save_checkpoint(self):
         # Serialize this.
@@ -311,8 +321,7 @@ class BeamSearchSolver(Graph):
 
         mtp = self.multi_thread_predictor(run_prediction)
         mtp.run_predictor_method("prepare_sdf", update_node=False)
-        mtp.run_predictor_method("qed")
-        mtp.run_predictor_method("qikprop")
+        mtp.run_predictor_method("before_dock")
 
         # this is not the true distance!
         self.evaluate(run_prediction)
@@ -362,8 +371,7 @@ class BeamSearchSolver(Graph):
 
         mtp = MultiThreadPredictor([self.source_mol], self.predictor_wrapper, prediction_workers=1)
         mtp.run_predictor_method("prepare_sdf", update_node=False)
-        mtp.run_predictor_method("qed")
-        mtp.run_predictor_method("qikprop")
+        mtp.run_predictor_method("before_dock")
         mtp.run_predictor_method("dock_score")
         mtp.run_predictor_method("delete_scratch", update_node=False)
         self.predictor_wrapper.dock_cpu = orig_dock_cpu

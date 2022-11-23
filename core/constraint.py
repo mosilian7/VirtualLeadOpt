@@ -40,7 +40,7 @@ def geometric_mean_evaluator(constraint: Constraint, prop: pd.Series, **kwargs) 
 def sigmoid_delta_dock_score(dock_score: float, **kwargs) -> float:
     if math.isnan(dock_score):
         return 1e-8
-    return 1 / (1 + math.exp((dock_score - kwargs["orig_dock_score"]) * 0.75))
+    return util.sigmoid(-(dock_score - kwargs["orig_dock_score"]) * 0.75)
 
 
 def eval_herg_log_ic50(herg_log_ic50: float, **kwargs) -> float:
@@ -62,8 +62,16 @@ def eval_qed(qed: float, **kwargs) -> float:
     return qed
 
 
+def eval_sa_score(sa_score: float, **kwargs) -> float:
+    if math.isnan(sa_score):
+        return 1e-8
+
+    return util.sigmoid(-(sa_score - 3))
+
+
 PREDEFINED_CONSTRAINT = Constraint(geometric_mean_evaluator)
 PREDEFINED_CONSTRAINT["dock_score"] = (sigmoid_delta_dock_score, 1, -float('inf'))
-PREDEFINED_CONSTRAINT["QPlogHERG"] = (eval_herg_log_ic50, 0.5, float('nan'))
-PREDEFINED_CONSTRAINT["qed"] = (eval_qed, 0.6, float('nan'))
+PREDEFINED_CONSTRAINT["QPlogHERG"] = (eval_herg_log_ic50, 0.6, float('nan'))
+PREDEFINED_CONSTRAINT["qed"] = (eval_qed, 0.75, float('nan'))
+PREDEFINED_CONSTRAINT["sa_score"] = (eval_sa_score, 0.9, float('nan'))
 

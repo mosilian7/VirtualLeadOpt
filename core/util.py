@@ -48,9 +48,13 @@ def split_list(l: list, share: int) -> list:
     return result
 
 
-def geometric_mean(l: list, weight: list = None):
+def geometric_mean(l: list, weight: list = None) -> float:
     if weight is None:
         weight = [1] * len(l)
     numerator = sum([weight[i] * math.log(l[i]) for i in range(len(l))])
     denominator = sum(weight)
     return math.exp(numerator / denominator)
+
+
+def sigmoid(x: float) -> float:
+    return 1 / (1 + math.exp(-x))

@@ -1,15 +1,20 @@
+import math
 import os
 import re
-import sys
 import subprocess
+import sys
 import threading
-import math
 
 import pandas as pd
-import core.util as util
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem import QED
+from rdkit.Chem import RDConfig
+
+import core.util as util
+
+sys.path.append(os.path.join(RDConfig.RDContribDir, 'SA_Score'))
+import sascorer
 
 
 class Predictor(threading.Thread):
@@ -82,6 +87,11 @@ class Predictor(threading.Thread):
             writer.write(mol)
         writer.close()
 
+    def before_dock(self) -> None:
+        self.qed()
+        self.qikprop()
+        self.sa_score()
+
     def qed(self) -> None:
         """
             Calculates QED score.
@@ -117,7 +127,7 @@ class Predictor(threading.Thread):
             self._fix_bad_csv(f"{self.id}.CSV")
             qp_result = pd.read_csv(f"{self.id}.CSV", on_bad_lines=lambda x: x, engine='python')
 
-        assert(qp_result.shape[0] == len(self.mols))
+        assert (qp_result.shape[0] == len(self.mols))
         self.predictions_lock.acquire()
         self.predictions = pd.concat([self.predictions, qp_result], axis=1, join="inner")
         self.predictions_lock.release()
@@ -130,6 +140,13 @@ class Predictor(threading.Thread):
 
         self.predictions_lock.acquire()
         self.predictions['num_arom_ring'] = num_arom_ring_list
+        self.predictions_lock.release()
+
+    def sa_score(self) -> None:
+        sa_scores = [sascorer.calculateScore(m) for m in self.mol_list]
+
+        self.predictions_lock.acquire()
+        self.predictions['sa_score'] = sa_scores
         self.predictions_lock.release()
 
     def delete_scratch(self) -> None:
@@ -162,7 +179,7 @@ class Predictor(threading.Thread):
         for i in range(len(self.mols)):
             if "dock_score" in self.mask and self.mask["dock_score"][i]:
                 continue
-            ligands.append(f"{self.id}_{i+1}.pdbqt")
+            ligands.append(f"{self.id}_{i + 1}.pdbqt")
 
         util.run_args([util.VINA,
                        "--receptor", f"../{self.protein}",
@@ -180,10 +197,10 @@ class Predictor(threading.Thread):
             if "dock_score" in self.mask and self.mask["dock_score"][i]:
                 results.append(float('nan'))
                 continue
-            result = self._parse_vina_out(f"{self.id}_{i+1}_out.pdbqt")
+            result = self._parse_vina_out(f"{self.id}_{i + 1}_out.pdbqt")
             results.append(result)
 
-        assert(len(results) == len(self.mols))
+        assert (len(results) == len(self.mols))
         self.predictions_lock.acquire()
         self.predictions['dock_score'] = results
         self.predictions_lock.release()
@@ -202,13 +219,13 @@ class Predictor(threading.Thread):
             if "dock_score" in self.mask and self.mask["dock_score"][i]:
                 results.append(float('nan'))
                 continue
-            out_file = f"{self.id}_{i+1}_out.pdbqt"
+            out_file = f"{self.id}_{i + 1}_out.pdbqt"
             util.run_args([util.VINA,
-                            "--receptor", f"../{self.protein}",
-                            "--ligand", f"{self.id}_{i+1}.pdbqt",
-                            "--out", out_file,
-                            "--cpu", str(self.dock_cpu),
-                            "--config", f"../{self.dock_config}"], log=self.log)
+                           "--receptor", f"../{self.protein}",
+                           "--ligand", f"{self.id}_{i + 1}.pdbqt",
+                           "--out", out_file,
+                           "--cpu", str(self.dock_cpu),
+                           "--config", f"../{self.dock_config}"], log=self.log)
             # vina usage: see https://vina.scripps.edu/manual/#usage
             # i+1: ligands pdbqt files split by openbabel start at index 1
             # ../self.protein: ugliest code in this class. schrodinger api doesn't allow to change output filename
@@ -244,9 +261,9 @@ class Predictor(threading.Thread):
         if re.search(".pdbqt", self.protein) is None:
             protein_file = f"../{self.protein}"
             util.run_args([util.OBABEL,
-                            "-ipdb", protein_file,
-                            "-opdbqt", "-O", f"{protein_file}qt",
-                            "-p", "-xr"], log=self.log)
+                           "-ipdb", protein_file,
+                           "-opdbqt", "-O", f"{protein_file}qt",
+                           "-p", "-xr"], log=self.log)
             # for -p: see https://openbabel.org/docs/dev/Command-line_tools/babel.html
             # for -xr: see http://openbabel.org/docs/current/FileFormats/Overview.html
             # -xr eliminates flexibility on side chains
@@ -255,9 +272,9 @@ class Predictor(threading.Thread):
 
         # convert .sdf ligands to .pdbqt
         util.run_args([util.OBABEL,
-                        "-isdf", f"{self.id}.sdf",
-                        "-opdbqt", "-O", f"{self.id}_.pdbqt",
-                        "-m"], log=self.log)
+                       "-isdf", f"{self.id}.sdf",
+                       "-opdbqt", "-O", f"{self.id}_.pdbqt",
+                       "-m"], log=self.log)
 
 
 class PredictorWrapper:
@@ -281,4 +298,3 @@ class PredictorWrapper:
         :return: a Predictor instance
         """
         return Predictor(mols, self.protein, self.dock_config, mask, self.dock_method, self.dock_cpu, self.log)
-
