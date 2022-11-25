@@ -12,9 +12,10 @@ class LeadOptimizer:
     """
 
     def __init__(self, lead_candidate: str, receptor: str, dock_config: str, opt_target: constraint.Constraint,
-                 iter_num: int, beam_width: int, exhaustiveness: float, epsilon: float = 1.0,
+                 iter_num: int, beam_width: int, exhaustiveness: float, retry_chance: float = 1.0,
                  pass_line: float = 1, checkpoint: str = "optimizer_checkpoint", mmpdb: str = graph.DEFAULT_MMPDB,
-                 max_variable_size: int = 4, prediction_workers: int = 1, dock_method: str = "vina", dock_cpu: int = 1):
+                 substructure: str = None, max_variable_size: int = 4, prediction_workers: int = 1,
+                 dock_method: str = "vina", dock_cpu: int = 1):
         """
         Initialize a LeadOptimizer
         :param lead_candidate: A SMILES string of the lead candidate
@@ -24,11 +25,12 @@ class LeadOptimizer:
         :param iter_num: Number of iterations
         :param beam_width: Beam width in the searching algorithm
         :param exhaustiveness: Defines the exhaustiveness of the searching algorithm (between 0 and 1)
-        :param epsilon: Defines the preference to give retry chances to the suboptimal solutions
+        :param retry_chance: Defines the preference to give retry chances to the suboptimal solutions
         :param pass_line: Deprecated
         :param checkpoint: Checkpoint filename
         :param mmpdb: The mmpdb file used by mmpdb transform.
                     See more on: https://github.com/rdkit/mmpdb
+        :param substructure: SMARTS pattern, which describe the substructure that is wished to be preserved
         :param max_variable_size: Argument used in mmpdb transform
         :param prediction_workers: Number of threads making prediction on molecular properties
         :param dock_method: Docking method
@@ -37,8 +39,8 @@ class LeadOptimizer:
         pw = predictor.PredictorWrapper(receptor, dock_config, dock_method, dock_cpu)
         source_mol = graph.Node(lead_candidate)
         self.beam_search_solver = graph.BeamSearchSolver(pw, opt_target, iter_num, beam_width, exhaustiveness,
-                                                         epsilon, source_mol, pass_line, checkpoint, mmpdb,
-                                                         max_variable_size, prediction_workers)
+                                                         retry_chance, source_mol, pass_line, checkpoint, mmpdb,
+                                                         substructure, max_variable_size, prediction_workers)
 
     def run(self):
         self.beam_search_solver.run()
