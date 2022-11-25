@@ -12,12 +12,14 @@ MMPDB = "D:\\py_projects\\VirtualLeadOpt\\dependency\\mmpdb\\mmpdb"
 QIKPROP = "D:\\Program Files\\Schrodinger\\qikprop"
 
 
-def run_args(args, logging=True, log=sys.stdout):
+def run_args(args, logging=True, log=sys.stdout, simplify_bound: int = 40):
     """
     Run args with command line.
     :param args: list of arguments
     :param logging: if logging, stdout and stderr will be writen to log
     :param log: opened log file
+    :param simplify_bound: if the number of lines in stdout is bigger than simplify_bound, then the output will be
+                            simplified.
     :return: stdout of the process
     """
     cp = subprocess.run(args, shell=True, capture_output=True, encoding="utf-8", errors="ignore")
@@ -25,7 +27,17 @@ def run_args(args, logging=True, log=sys.stdout):
     if logging:
         curr_time = time.strftime('%H:%M:%S', time.localtime(time.time()))
         if len(cp.stdout) > 0:
-            log.write(f"\033[32m[{curr_time}] {args[0]} STDOUT:\033[0m\n" + cp.stdout)
+            log.write(f"\033[32m[{curr_time}] {args[0]} STDOUT:\033[0m\n")
+            so = str(cp.stdout).split('\n')
+            if len(so) < simplify_bound:
+                log.write(cp.stdout)
+            else:
+                for ln in so[:int(simplify_bound/2)]:
+                    log.write(ln + '\n')
+                for i in range(3):
+                    log.write('...\n')
+                for ln in so[-int(simplify_bound/2):]:
+                    log.write(ln + '\n')
         if len(cp.stderr) > 0:
             log.write(f"\033[31m[{curr_time}] {args[0]} STDERR:\033[0m\n" + cp.stderr)
     return cp.stdout

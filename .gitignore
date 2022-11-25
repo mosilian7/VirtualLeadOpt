@@ -1,3 +1,6 @@
 /data
 /scratch
 /dependency
+/test
+/.ipynb_checkpoints
+/.idea
