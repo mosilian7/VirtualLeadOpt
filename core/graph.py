@@ -125,13 +125,15 @@ class Graph:
     """
 
     def __init__(self, predictor_wrapper: PredictorWrapper, constraint: Constraint, mols: list = [],
-                 mmpdb: str = DEFAULT_MMPDB, max_variable_size: int = 4, prediction_workers: int = 1):
+                 mmpdb: str = DEFAULT_MMPDB, substructure: str = None, max_variable_size: int = 4,
+                 prediction_workers: int = 1):
         """
-        A graph contains some information that is going to be used when implementing searching algorithm.
+        A graph contains some information that is going to be used when implementing searching algorithm
         :param predictor_wrapper: a PredictorWrapper object
         :param constraint: a Constraint object
         :param mols: source molecules
         :param mmpdb: mmp database used in find_neighbors
+        :param substructure: SMARTS pattern, which describe the substructure that is wished to be preserved
         :param max_variable_size: parameter in mmp transform
         :param prediction_workers: number of threads
         """
@@ -139,6 +141,7 @@ class Graph:
         self.constraint = constraint
         self.fringe = mols
         self.mmpdb = mmpdb
+        self.substructure = substructure
         self.max_variable_size = max_variable_size
 
         self.prediction_workers = prediction_workers
@@ -170,10 +173,12 @@ class Graph:
         Finds neighbors of a node.
         :param node: a Node
         """
+        substructure_param = [] if self.substructure is None else ["--substructure", self.substructure]
         mmpdb_trans_out = util.run_args(["python", util.MMPDB, "transform",
                                          "--smiles", node.mol,
                                          self.mmpdb,
-                                         "--max-variable-size", str(self.max_variable_size)])
+                                         "--max-variable-size", str(self.max_variable_size),
+                                         *substructure_param])
         # run python mmpdb transform --help to get help
 
         mols = self._parse_mmpdb_trans_out(mmpdb_trans_out)
@@ -210,9 +215,9 @@ class BeamSearchSolver(Graph):
     def __init__(self, predictor_wrapper: PredictorWrapper, constraint: Constraint,
                  iter_num: int, beam_width: int, exhaustiveness: float, epsilon: float, source_mol: Node,
                  pass_line: float = 0.9, checkpoint: str = "bss_checkpoint",
-                 mmpdb: str = DEFAULT_MMPDB, max_variable_size: int = 4, prediction_workers: int = 1):
+                 mmpdb: str = DEFAULT_MMPDB, substructure: str = None, max_variable_size: int = 4, prediction_workers: int = 1):
         super(BeamSearchSolver, self).__init__(predictor_wrapper, constraint, [source_mol],
-                                               mmpdb, max_variable_size, prediction_workers)
+                                               mmpdb, substructure, max_variable_size, prediction_workers)
         self.source_mol = source_mol
         self.iter_num = iter_num
         self.beam_width = beam_width
@@ -251,6 +256,10 @@ class BeamSearchSolver(Graph):
             pickle.dump(self, f)
         print("checkpoint saved")
 
+    def _update_discard(self, n: Node) -> None:
+        self.discard.add(n)
+        n.neighbors = None
+
     def _to_be_predicted(self) -> list:
         # Returns molecules that will undergo prediction next.
         curr = set()
@@ -269,8 +278,12 @@ class BeamSearchSolver(Graph):
 
         random.shuffle(run_prediction)
 
+        if self.exhaustiveness < 1:
+            len_run_prediction = int(self.exhaustiveness * len(run_prediction))
+        else:
+            len_run_prediction = int(self.exhaustiveness)
         # Because of limited resource, prediction will only run on a part of molecules.
-        run_prediction = run_prediction[:int(self.exhaustiveness * len(run_prediction))]
+        run_prediction = run_prediction[:len_run_prediction]
 
         return run_prediction
 
@@ -281,7 +294,7 @@ class BeamSearchSolver(Graph):
         bound = min(self.fringe).evaluation
         for i in range(len(run_prediction)):
             if run_prediction[i].evaluation < bound:
-                self.discard.add(run_prediction[i])
+                self._update_discard(run_prediction[i])
                 mask["dock_score"][i] = True
         return mask
 
@@ -308,7 +321,7 @@ class BeamSearchSolver(Graph):
 
         for n in self.fringe:
             if n not in new_fringe:
-                self.discard.add(n)
+                self._update_discard(n)
 
         self.fringe = new_fringe
 

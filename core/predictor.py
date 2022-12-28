@@ -38,9 +38,9 @@ class Predictor(threading.Thread):
         super(Predictor, self).__init__()
         self.mols = mols
         self.id = abs(hash(''.join(self.mols)))  # code will crash if id is negative.
-        self.protein = protein
+        self.protein = os.path.abspath(protein)
         self.mask = {} if mask is None else mask
-        self.dock_config = dock_config
+        self.dock_config = os.path.abspath(dock_config)
         self.dock_method = dock_method
         self.dock_cpu = dock_cpu
         self.predictions = pd.DataFrame({}, index=[i for i in range(len(mols))])
@@ -174,31 +174,45 @@ class Predictor(threading.Thread):
         """
 
         self._prepare_docking_file()
-
-        ligands = []
-        for i in range(len(self.mols)):
-            if "dock_score" in self.mask and self.mask["dock_score"][i]:
-                continue
-            ligands.append(f"{self.id}_{i + 1}.pdbqt")
-
-        util.run_args([util.VINA,
-                       "--receptor", f"../{self.protein}",
-                       "--batch", *ligands,
-                       "--dir", ".",
-                       "--cpu", str(self.dock_cpu),
-                       "--config", f"../{self.dock_config}"], log=self.log)
-        # vina usage: see https://vina.scripps.edu/manual/#usage
-        # i+1: ligands pdbqt files split by openbabel start at index 1
-        # ../self.protein: ugliest code in this class. schrodinger api doesn't allow to change output filename
-
         results = []
 
-        for i in range(len(self.mols)):
-            if "dock_score" in self.mask and self.mask["dock_score"][i]:
-                results.append(float('nan'))
-                continue
-            result = self._parse_vina_out(f"{self.id}_{i + 1}_out.pdbqt")
-            results.append(result)
+        if self.dock_method == "vina":
+            ligands = []
+            for i in range(len(self.mols)):
+                if "dock_score" in self.mask and self.mask["dock_score"][i]:
+                    continue
+                ligands.append(f"{self.id}_{i + 1}.pdbqt")
+
+            util.run_args([util.VINA,
+                           "--receptor", self.protein,
+                           "--batch", *ligands,
+                           "--dir", ".",
+                           "--cpu", str(self.dock_cpu),
+                           "--config", self.dock_config], log=self.log)
+            # vina usage: see https://vina.scripps.edu/manual/#usage
+            # i+1: ligands pdbqt files split by openbabel start at index 1
+
+            for i in range(len(self.mols)):
+                if "dock_score" in self.mask and self.mask["dock_score"][i]:
+                    results.append(float('nan'))
+                    continue
+                result = self._parse_vina_out(f"{self.id}_{i + 1}_out.pdbqt")
+                results.append(result)
+
+        elif self.dock_method == "gnina":
+            ligands_path = util.wsl_path_of(os.path.abspath(f"{self.id}_gnina_ligands.sdf"))
+            protein_path = util.wsl_path_of(self.protein)
+            config_path = util.wsl_path_of(self.dock_config)
+            output_path = util.wsl_path_of(os.path.abspath(f"{self.id}_gnina_out.sdf"))
+            wsl_ip = util.run_args(["wsl", "hostname", "-I"], logging=False).strip()
+            util.run_args(["gnina",
+                           "-r", protein_path,
+                           "-l", ligands_path,
+                           "--config", config_path,
+                           "-o", output_path],
+                          log=self.log, remote_endpoint=f"http://{wsl_ip}:8111")
+            results = self._parse_gnina_out(f"{self.id}_gnina_ligands.sdf")
+            # TODO: complete this
 
         assert (len(results) == len(self.mols))
         self.predictions_lock.acquire()
@@ -221,14 +235,13 @@ class Predictor(threading.Thread):
                 continue
             out_file = f"{self.id}_{i + 1}_out.pdbqt"
             util.run_args([util.VINA,
-                           "--receptor", f"../{self.protein}",
+                           "--receptor", self.protein,
                            "--ligand", f"{self.id}_{i + 1}.pdbqt",
                            "--out", out_file,
                            "--cpu", str(self.dock_cpu),
-                           "--config", f"../{self.dock_config}"], log=self.log)
+                           "--config", self.dock_config], log=self.log)
             # vina usage: see https://vina.scripps.edu/manual/#usage
             # i+1: ligands pdbqt files split by openbabel start at index 1
-            # ../self.protein: ugliest code in this class. schrodinger api doesn't allow to change output filename
 
             result = self._parse_vina_out(out_file)
             results.append(result)
@@ -236,6 +249,10 @@ class Predictor(threading.Thread):
         self.predictions_lock.acquire()
         self.predictions['dock_score'] = results
         self.predictions_lock.release()
+
+    @staticmethod
+    def _parse_gnina_out(out_file) -> float:
+        pass
 
     @staticmethod
     def _parse_vina_out(out_file) -> float:
@@ -259,22 +276,35 @@ class Predictor(threading.Thread):
 
         # convert .pdb to .pdbqt
         if re.search(".pdbqt", self.protein) is None:
-            protein_file = f"../{self.protein}"
             util.run_args([util.OBABEL,
-                           "-ipdb", protein_file,
-                           "-opdbqt", "-O", f"{protein_file}qt",
+                           "-ipdb", self.protein,
+                           "-opdbqt", "-O", f"{self.protein}qt",
                            "-p", "-xr"], log=self.log)
             # for -p: see https://openbabel.org/docs/dev/Command-line_tools/babel.html
             # for -xr: see http://openbabel.org/docs/current/FileFormats/Overview.html
             # -xr eliminates flexibility on side chains
             # TODO: fix this for flexible docking
-            self.protein = f"{self.protein}qt"
+            self.protein = os.path.abspath(f"{self.protein}qt")
 
-        # convert .sdf ligands to .pdbqt
-        util.run_args([util.OBABEL,
-                       "-isdf", f"{self.id}.sdf",
-                       "-opdbqt", "-O", f"{self.id}_.pdbqt",
-                       "-m"], log=self.log)
+        if self.dock_method == "vina":
+            # convert .sdf ligands to .pdbqt
+            util.run_args([util.OBABEL,
+                           "-isdf", f"{self.id}.sdf",
+                           "-opdbqt", "-O", f"{self.id}_.pdbqt",
+                           "-m"], log=self.log)
+
+        elif self.dock_method == "gnina":
+            # prepare a .sdf file for all unmasked molecules
+            writer = Chem.SDWriter(f'{self.id}_gnina_ligands.sdf')
+            for i in range(len(self.mols)):
+                if "dock_score" in self.mask and self.mask["dock_score"][i]:
+                    continue
+                mol = Chem.MolFromSmiles(self.mols[i])
+                hmol = Chem.AddHs(mol)
+                AllChem.EmbedMolecule(hmol, AllChem.ETKDG())
+                AllChem.UFFOptimizeMolecule(hmol, 1000)
+                writer.write(hmol)
+            writer.close()
 
 
 class PredictorWrapper:
@@ -284,8 +314,8 @@ class PredictorWrapper:
 
     def __init__(self, protein: str, dock_config: str, dock_method: str = "vina",
                  dock_cpu: int = 1, log: str = "stdout"):
-        self.protein = protein
-        self.dock_config = dock_config
+        self.protein = os.path.abspath(protein)
+        self.dock_config = os.path.abspath(dock_config)
         self.dock_method = dock_method
         self.dock_cpu = dock_cpu
         self.log = log

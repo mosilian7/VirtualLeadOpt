@@ -14,7 +14,8 @@ class LeadOptimizer:
     def __init__(self, lead_candidate: str, receptor: str, dock_config: str, opt_target: constraint.Constraint,
                  iter_num: int, beam_width: int, exhaustiveness: float, epsilon: float = 1.0,
                  pass_line: float = 1, checkpoint: str = "optimizer_checkpoint", mmpdb: str = graph.DEFAULT_MMPDB,
-                 max_variable_size: int = 4, prediction_workers: int = 1, dock_method: str = "vina", dock_cpu: int = 1):
+                 substructure: str = None, max_variable_size: int = 4, prediction_workers: int = 1,
+                 dock_method: str = "vina", dock_cpu: int = 1):
         """
         Initialize a LeadOptimizer
         :param lead_candidate: A SMILES string of the lead candidate
@@ -29,6 +30,7 @@ class LeadOptimizer:
         :param checkpoint: Checkpoint filename
         :param mmpdb: The mmpdb file used by mmpdb transform.
                     See more on: https://github.com/rdkit/mmpdb
+        :param substructure: SMARTS pattern, which describe the substructure that is wished to be preserved
         :param max_variable_size: Argument used in mmpdb transform
         :param prediction_workers: Number of threads making prediction on molecular properties
         :param dock_method: Docking method
@@ -38,7 +40,7 @@ class LeadOptimizer:
         source_mol = graph.Node(lead_candidate)
         self.beam_search_solver = graph.BeamSearchSolver(pw, opt_target, iter_num, beam_width, exhaustiveness,
                                                          epsilon, source_mol, pass_line, checkpoint, mmpdb,
-                                                         max_variable_size, prediction_workers)
+                                                         substructure, max_variable_size, prediction_workers)
 
     def run(self):
         self.beam_search_solver.run()
