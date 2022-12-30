@@ -1,5 +1,8 @@
+import os.path
 import subprocess
 import sys
+from typing import List
+
 from rdkit import Chem
 from rdkit.Chem import Draw
 import time
@@ -55,7 +58,7 @@ def run_args(args, logging=True, log=sys.stdout, simplify_bound: int = 40, remot
     return out
 
 
-def visualize(mols: list):
+def visualize(mols: List[str]):
     mlist = [Chem.MolFromSmiles(str(m)) for m in mols]
     return Draw.MolsToImage(mlist, subImgSize=(300, 300))
 
@@ -72,7 +75,7 @@ def split_list(l: list, share: int) -> list:
     return result
 
 
-def geometric_mean(l: list, weight: list = None) -> float:
+def geometric_mean(l: List[float], weight: List[float] = None) -> float:
     if weight is None:
         weight = [1] * len(l)
     numerator = sum([weight[i] * math.log(l[i]) for i in range(len(l))])
@@ -85,8 +88,9 @@ def sigmoid(x: float) -> float:
 
 
 def wsl_path_of(windows_path: str) -> str:
+    windows_abs_path = os.path.abspath(windows_path)
     try:
-        drive_letter, abs_path = windows_path.split(":\\")
+        drive_letter, abs_path = windows_abs_path.split(":\\")
     except ValueError:
         raise ValueError("invalid windows path. maybe the path is not absolute")
 

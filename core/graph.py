@@ -4,6 +4,7 @@ import random
 import pickle
 import time
 from functools import reduce
+from typing import Dict, List
 
 import core.util as util
 import pandas as pd
@@ -20,7 +21,7 @@ class Node:
         node in searching algorithm
     """
 
-    def __init__(self, mol: str, prop: pd.Series = None, neighbors: list = None):
+    def __init__(self, mol: str, prop: pd.Series = None, neighbors: List["Node"] = None):
         """
         Each node correspond to a molecule in the searching algorithm. It contains some information about the molecule.
         :param mol: the SMILES string of the molecule
@@ -33,16 +34,16 @@ class Node:
         self.evaluation = 0
         self.evaluation_done = False
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.mol
 
-    def __lt__(self, other):
+    def __lt__(self, other) -> bool:
         return self.evaluation < other.evaluation
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         return self.mol == other.mol
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.mol)
 
     def qed_done(self) -> bool:
@@ -65,7 +66,8 @@ class MultiThreadPredictor:
     """
     use multiple predictors to perform prediction on a set of nodes
     """
-    def __init__(self, nodes: list, predictor_wrapper: PredictorWrapper, prediction_workers: int, mask: dict = None):
+    def __init__(self, nodes: List[Node], predictor_wrapper: PredictorWrapper, prediction_workers: int,
+                 mask: Dict[str, List[bool]] = None):
         """
         Initializer of a MultiThreadPredictor
         :param nodes: corresponds to a set of molecules
@@ -82,7 +84,7 @@ class MultiThreadPredictor:
         mask = {} if mask is None else mask
         self.update_mask(mask)
 
-    def update_mask(self, mask: dict) -> None:
+    def update_mask(self, mask: Dict[str, List[bool]]) -> None:
         """
         Update masking of each predictor in self.predictors.
         :param mask: masking directory
@@ -215,14 +217,15 @@ class BeamSearchSolver(Graph):
     def __init__(self, predictor_wrapper: PredictorWrapper, constraint: Constraint,
                  iter_num: int, beam_width: int, exhaustiveness: float, epsilon: float, source_mol: Node,
                  pass_line: float = 0.9, checkpoint: str = "bss_checkpoint",
-                 mmpdb: str = DEFAULT_MMPDB, substructure: str = None, max_variable_size: int = 4, prediction_workers: int = 1):
+                 mmpdb: str = DEFAULT_MMPDB, substructure: str = None, max_variable_size: int = 4,
+                 prediction_workers: int = 1):
         super(BeamSearchSolver, self).__init__(predictor_wrapper, constraint, [source_mol],
                                                mmpdb, substructure, max_variable_size, prediction_workers)
         self.source_mol = source_mol
         self.iter_num = iter_num
         self.beam_width = beam_width
         self.exhaustiveness = exhaustiveness
-        self.retry_chance = int(beam_width * epsilon)
+        self.retry_chance = int(beam_width * epsilon) if epsilon < 1 else int(epsilon)
         self.discard = set()
         self.pass_line = pass_line
         self.result = set()

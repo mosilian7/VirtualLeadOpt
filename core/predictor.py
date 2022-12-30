@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 import threading
+from typing import List, Dict
 
 import pandas as pd
 from rdkit import Chem
@@ -23,7 +24,7 @@ class Predictor(threading.Thread):
         NOTE: public methods should run under ./scratch directory
     """
 
-    def __init__(self, mols: list, protein: str, dock_config: str, mask: dict = None,
+    def __init__(self, mols: List[str], protein: str, dock_config: str, mask: dict = None,
                  dock_method: str = "vina", dock_cpu: int = 4, log: str = "stdout"):
         """
         initializer. make sure that open babel is installed and added to PATH
@@ -160,7 +161,7 @@ class Predictor(threading.Thread):
             if re.match(str(self.id), f) is not None:
                 os.remove(f)
 
-    def _run_args(self, args):
+    def _run_args(self, args: List[str]):
         # deprecated. can be replaced by util.ren_args(args, log=self.log)
         cp = subprocess.run(args, shell=True, capture_output=True, encoding="utf-8", errors="ignore")
         self.log.write(f"-{args[0]} STDOUT:\n" + cp.stdout)
@@ -200,21 +201,30 @@ class Predictor(threading.Thread):
                 results.append(result)
 
         elif self.dock_method == "gnina":
-            ligands_path = util.wsl_path_of(os.path.abspath(f"{self.id}_gnina_ligands.sdf"))
+            # gnina must run on Linux system
+
+            # file paths on remote machine.
+            # TODO: modify this for generalization
+            ligands_path = util.wsl_path_of(f"{self.id}_gnina_ligands.sdf")
             protein_path = util.wsl_path_of(self.protein)
             config_path = util.wsl_path_of(self.dock_config)
-            output_path = util.wsl_path_of(os.path.abspath(f"{self.id}_gnina_out.sdf"))
+            output_path = util.wsl_path_of(f"{self.id}_gnina_out.sdf")
+
             wsl_ip = util.run_args(["wsl", "hostname", "-I"], logging=False).strip()
             util.run_args(["gnina",
                            "-r", protein_path,
                            "-l", ligands_path,
                            "--config", config_path,
+                           "--cpu", str(self.dock_cpu),
                            "-o", output_path],
                           log=self.log, remote_endpoint=f"http://{wsl_ip}:8111")
-            results = self._parse_gnina_out(f"{self.id}_gnina_ligands.sdf")
-            # TODO: complete this
+            results = self._parse_gnina_out(f"{self.id}_gnina_out.sdf")
 
-        assert (len(results) == len(self.mols))
+            for i in range(len(self.mols)):
+                if "dock_score" in self.mask and self.mask["dock_score"][i]:
+                    results.insert(i, float('nan'))
+
+        assert(len(results) == len(self.mols))
         self.predictions_lock.acquire()
         self.predictions['dock_score'] = results
         self.predictions_lock.release()
@@ -223,7 +233,6 @@ class Predictor(threading.Thread):
         """
         Computes docking score. Requires sdf file for the molecules in current directory.
         NOTE: everything is done under ./scratch directory
-        TODO: how to specify the docking box in the config file?
         """
 
         self._prepare_docking_file()
@@ -251,11 +260,41 @@ class Predictor(threading.Thread):
         self.predictions_lock.release()
 
     @staticmethod
-    def _parse_gnina_out(out_file) -> float:
-        pass
+    def _parse_gnina_out(out_file: str) -> List[float]:
+        # parser is a state machine
+        flag = 0
+        results = []
+        last_smiles = ""
+
+        with open(out_file, "r") as f:
+            line = f.readline()
+            while line != '':
+                if flag == 0:
+                    if re.search("<smiles>", line) is not None:
+                        flag = 1
+                elif flag == 1:
+                    smiles = str(line.strip())
+                    if smiles != last_smiles:
+                        flag = 2
+                    else:
+                        flag = 0
+                    last_smiles = smiles
+                elif flag == 2:
+                    if re.search("<CNNaffinity>", line) is not None:
+                        flag = 3
+                elif flag == 3:
+                    cnn_affinity = float(line.strip())
+                    results.append(-cnn_affinity)
+                    flag = 0
+
+                line = f.readline()
+
+        return results
+
+
 
     @staticmethod
-    def _parse_vina_out(out_file) -> float:
+    def _parse_vina_out(out_file: str) -> float:
         # parse output .pdbqt file
         try:
             f = open(out_file)
@@ -303,6 +342,7 @@ class Predictor(threading.Thread):
                 hmol = Chem.AddHs(mol)
                 AllChem.EmbedMolecule(hmol, AllChem.ETKDG())
                 AllChem.UFFOptimizeMolecule(hmol, 1000)
+                hmol.SetProp("smiles", self.mols[i])
                 writer.write(hmol)
             writer.close()
 
@@ -320,7 +360,7 @@ class PredictorWrapper:
         self.dock_cpu = dock_cpu
         self.log = log
 
-    def predictor_instance(self, mols: list, mask: dict = None) -> Predictor:
+    def predictor_instance(self, mols: List[str], mask: Dict[str, List[bool]] = None) -> Predictor:
         """
         Creates a Predictor instance which makes prediction on properties of a list of molecules.
         :param mols: a list of SMILES strings
