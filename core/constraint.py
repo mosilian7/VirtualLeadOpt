@@ -72,7 +72,7 @@ def eval_sa_score(sa_score: float, **kwargs) -> float:
 
 PREDEFINED_CONSTRAINT = Constraint(geometric_mean_evaluator)
 PREDEFINED_CONSTRAINT["dock_score"] = (sigmoid_delta_dock_score, 1, -float('inf'))
-PREDEFINED_CONSTRAINT["QPlogHERG"] = (eval_herg_log_ic50, 0.6, float('nan'))
-PREDEFINED_CONSTRAINT["qed"] = (eval_qed, 0.25, float('nan'))
-PREDEFINED_CONSTRAINT["sa_score"] = (eval_sa_score, 0.9, float('nan'))
+PREDEFINED_CONSTRAINT["QPlogHERG"] = (eval_herg_log_ic50, 0.4, float('nan'))
+PREDEFINED_CONSTRAINT["qed"] = (eval_qed, 0.2, float('nan'))
+PREDEFINED_CONSTRAINT["sa_score"] = (eval_sa_score, 0.6, float('nan'))
 

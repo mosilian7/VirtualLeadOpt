@@ -198,7 +198,7 @@ class Graph:
     @staticmethod
     def g2g_translate(mol: str, g2g_translation_model, num_decode: int = 20) -> List[str]:
         os.chdir("./scratch")
-        mol_file = os.path.abspath(f"{mol}.txt")
+        mol_file = os.path.abspath(f"{hash(mol)}.txt")
         with open(mol_file, 'w') as f:
             f.write(f"{mol}\n\n")
 
