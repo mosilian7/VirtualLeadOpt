@@ -224,7 +224,7 @@ class Predictor(threading.Thread):
                 if "dock_score" in self.mask and self.mask["dock_score"][i]:
                     results.insert(i, float('nan'))
 
-        assert(len(results) == len(self.mols))
+        assert len(results) == len(self.mols), "Hint: check if the server is running"
         self.predictions_lock.acquire()
         self.predictions['dock_score'] = results
         self.predictions_lock.release()

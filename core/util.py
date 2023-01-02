@@ -14,6 +14,8 @@ VINA = "D:\\py_projects\\VirtualLeadOpt\\dependency\\vina"
 OBABEL = "D:\\Program Files\\OpenBabel-3.1.1\\obabel"
 MMPDB = "D:\\py_projects\\VirtualLeadOpt\\dependency\\mmpdb\\mmpdb"
 QIKPROP = "D:\\Program Files\\Schrodinger\\qikprop"
+G2G_TRANSLATION_MODEL = "D:\\py_projects\\VirtualLeadOpt\\dependency\\hgraph2graph\\ckpt\\translation\\model.8"
+G2G_TRANSLATION_VOCAB = "D:\\py_projects\\VirtualLeadOpt\\dependency\\hgraph2graph\\data\\qed\\vocab.txt"
 
 
 def run_args(args, logging=True, log=sys.stdout, simplify_bound: int = 40, remote_endpoint: str = None):
