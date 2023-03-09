@@ -262,6 +262,7 @@ class BeamSearchSolver(Graph):
         self.retry_chance = int(beam_width * retry_chance) if retry_chance < 1 else int(retry_chance)
         self.simulated_annealing_temperature = simulated_annealing_temperature
         self.discard = set()
+        self.discard = set()
         self.pass_line = pass_line
         self.result = set()
         self.error = set()
